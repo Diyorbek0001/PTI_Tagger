@@ -1,0 +1,8 @@
+node_modules
+.next
+.next-build
+.env*
+!.env.example
+coverage
+.local-postgres
+*.tsbuildinfo

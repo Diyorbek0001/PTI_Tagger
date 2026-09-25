@@ -1,0 +1,9 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html { color-scheme: dark; }
+body { @apply min-h-screen bg-[#0a0c0f] text-slate-100 antialiased; background-image: radial-gradient(circle at top, rgba(37, 99, 235, 0.10), transparent 34rem); }
+button { @apply transition-all duration-200 ease-out hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0; }
+input, select { @apply outline-none transition duration-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20; }
+::selection { @apply bg-blue-500/30 text-white; }

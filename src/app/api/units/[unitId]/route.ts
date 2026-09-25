@@ -1,0 +1,3 @@
+import { NextResponse } from 'next/server';
+import { db } from '@/lib/database';
+export async function GET(request: Request, { params }: {params: Promise<{unitId:string}>}) { try { const {unitId}=await params; const {rows}=await db.query(`select u.*, coalesce(json_agg(r order by r.registered_at desc) filter (where r.id is not null), '[]') as unit_registrations from units u left join unit_registrations r on r.unit_id=u.id where u.id=$1 group by u.id`,[unitId]); if(!rows[0]) throw new Error('Unit not found'); return NextResponse.json({unit:rows[0]}); } catch(error) { return NextResponse.json({error:error instanceof Error?error.message:'Failed'}, {status:400}); } }

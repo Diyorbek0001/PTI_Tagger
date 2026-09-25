@@ -1,0 +1,41 @@
+{
+  "name": "pti-telegram-registration",
+  "private": true,
+  "scripts": {
+    "dev": "DOTENV_CONFIG_PATH=.env.local node -r dotenv/config node_modules/next/dist/bin/next dev",
+    "db:start": "tsx scripts/start-local-postgres.ts",
+    "migrate": "node scripts/migrate-database.mjs",
+    "build": "NODE_ENV=production NEXT_DIST_DIR=.next-build node node_modules/next/dist/bin/next build",
+    "start": "node scripts/start-production.mjs",
+    "start:web": "NEXT_DIST_DIR=.next-build node node_modules/next/dist/bin/next start",
+    "start:bot": "node --import tsx scripts/start-telegram-bot.ts",
+    "bot": "DOTENV_CONFIG_PATH=.env.local node -r dotenv/config --import tsx scripts/start-telegram-bot.ts",
+    "lint": "eslint .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@types/pg": "^8.11.11",
+    "grammy": "^1.35.0",
+    "next": "^15.2.0",
+    "pg": "^8.13.3",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "tsx": "^4.19.3",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "dotenv": "^16.4.7",
+    "embedded-postgres": "^17.10.0-beta.17",
+    "eslint": "^9.21.0",
+    "eslint-config-next": "^15.2.0",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.7"
+  }
+}
