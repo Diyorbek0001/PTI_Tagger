@@ -20,8 +20,20 @@ export async function createProcessingSubmission(input: CreatePtiSubmissionInput
     const previous = await latestResendRequest(client, input.unitId);
     const { rows } = await client.query(`insert into pti_submissions
       (unit_id, registration_id, source_chat_id, source_chat_title, source_message_id, submitted_by_user_id, submitted_by_username, media_type, telegram_file_id, archive_chat_id, resubmission_for_id)
-      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) returning id, pti_number`,
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+      on conflict (source_chat_id, source_message_id) do update set
+        unit_id=excluded.unit_id, registration_id=excluded.registration_id,
+        source_chat_title=excluded.source_chat_title,
+        submitted_by_user_id=excluded.submitted_by_user_id,
+        submitted_by_username=excluded.submitted_by_username,
+        media_type=excluded.media_type, telegram_file_id=excluded.telegram_file_id,
+        archive_chat_id=excluded.archive_chat_id, archive_message_id=null,
+        status='processing', failure_reason=null,
+        resubmission_for_id=excluded.resubmission_for_id, updated_at=now()
+      where pti_submissions.status='failed'
+      returning id, pti_number`,
       [input.unitId,input.registrationId,input.sourceChatId,input.sourceChatTitle,input.sourceMessageId,input.submittedByUserId??null,input.submittedByUsername??null,input.mediaType,input.fileId,input.archiveChatId,previous?.id??null]);
+    if (!rows[0]) throw new Error('This photo or video has already been submitted for PTI review.');
     if (previous) await client.query("update pti_submissions set status='resubmitted' where id=$1", [previous.id]);
     await client.query('commit');
     return { id: rows[0].id as string, reference: formatPtiReference(rows[0].pti_number as string) };

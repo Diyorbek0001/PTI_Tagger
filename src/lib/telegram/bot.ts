@@ -115,16 +115,18 @@ Placeholders:
     if (!registration) return void await ctx.reply('❌ This Telegram group is not registered to a unit.');
 
     const existing = await findExistingSubmission(String(chat.id), sourceMessage.message_id);
-    if (existing) return void await ctx.reply('ℹ️ This photo or video has already been submitted for PTI review.');
+    if (existing && existing.status !== 'failed') return void await ctx.reply('ℹ️ This photo or video has already been submitted for PTI review.');
 
     let submissionId: string | undefined;
     try {
       const created = await createProcessingSubmission({ unitId: registration.unit_id, registrationId: registration.registration_id, sourceChatId: String(chat.id), sourceChatTitle: chat.title ?? 'Untitled group', sourceMessageId: sourceMessage.message_id, submittedByUserId: ctx.from ? String(ctx.from.id) : undefined, submittedByUsername: ctx.from?.username, mediaType: media.type, fileId: media.fileId, archiveChatId });
       submissionId = created.id;
-      const forwarded = await ctx.api.forwardMessage(archiveChatId, chat.id, sourceMessage.message_id);
-      await markSubmissionForwarded(submissionId, forwarded.message_id);
+      const archived = media.type === 'photo'
+        ? await ctx.api.sendPhoto(archiveChatId, media.fileId, sourceMessage.caption ? { caption: sourceMessage.caption } : undefined)
+        : await ctx.api.sendVideo(archiveChatId, media.fileId, sourceMessage.caption ? { caption: sourceMessage.caption } : undefined);
+      await markSubmissionForwarded(submissionId, archived.message_id);
       const driverName = [registration.driver_first_name, registration.driver_last_name].filter(Boolean).join(' ') || (registration.driver_username ? `@${registration.driver_username}` : 'Not available');
-      await ctx.api.sendMessage(archiveChatId, `PTI submission\nPTI ID: ${created.reference}\nUnit: ${registration.unit_number}\nCompany: ${registration.company}\nDriver: ${driverName}\nSource group: ${chat.title ?? 'Untitled group'}`, { reply_parameters: { message_id: forwarded.message_id } });
+      await ctx.api.sendMessage(archiveChatId, `PTI submission\nPTI ID: ${created.reference}\nUnit: ${registration.unit_number}\nCompany: ${registration.company}\nDriver: ${driverName}\nSource group: ${chat.title ?? 'Untitled group'}`, { reply_parameters: { message_id: archived.message_id } });
       await ctx.reply(`✅ PTI submitted for review\n\nPTI ID: ${created.reference}\nUnit: ${registration.unit_number}\nMedia: ${media.type === 'video' ? 'Video' : 'Photo'}\nStatus: Pending review`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to forward PTI media.';
