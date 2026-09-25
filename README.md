@@ -20,6 +20,8 @@ The repository is configured to run the website, Telegram bot, reminder schedule
 3. Add these application-service variables:
    - `TELEGRAM_BOT_TOKEN` — token from BotFather.
    - `TELEGRAM_ADMIN_USERNAME` — the only Telegram username allowed to configure reminders in the bot's private chat; enter it without `@`.
+   - `WEB_ADMIN_USERNAME` — username for the website login page.
+   - `WEB_ADMIN_PASSWORD` — a long, unique password for the website login page.
    - `PTI_ARCHIVE_CHAT_ID` — archive supergroup ID beginning with `-100`.
    - `PTI_TIME_ZONE` — timezone used for `@lastPTI` and `@lastNotified`, for example `America/New_York`.
    - `NODE_ENV=production`.
@@ -62,4 +64,4 @@ Available placeholders are `@driver`, `@lastNotified`, `@lastPTI`, `@unit`, and 
 
 ## Security note
 
-The current test stage has no website authentication. Do not expose the Railway domain to untrusted users until authentication and authorization are added. PostgreSQL remains server-only; browser code does not receive `DATABASE_URL` or the Telegram token.
+The website and its APIs are protected by an HTTP-only signed session cookie. Railway's `/api/health` endpoint remains public for deployment health checks. PostgreSQL remains server-only; browser code does not receive `DATABASE_URL`, credentials, or the Telegram token.
