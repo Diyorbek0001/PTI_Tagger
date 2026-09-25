@@ -28,7 +28,7 @@ The repository is configured to run the website, Telegram bot, reminder schedule
 4. Generate a Railway public domain for the application service and deploy.
 5. Keep this service at exactly **one replica**. The Telegram bot uses long polling, so multiple replicas using the same token would compete for updates and duplicate the reminder scheduler.
 
-Railway injects `PORT`; the production runner passes it to Next.js automatically. Database migrations are transactional and protected by a PostgreSQL advisory lock. Production deployment does not load the local development seed.
+Railway injects `PORT`; the production runner passes it to Next.js automatically. Database migrations run both as a pre-deploy command and as a guarded production-start prerequisite, so the website cannot start against an empty schema. Migrations are transactional and protected by a PostgreSQL advisory lock. Production deployment does not load the local development seed.
 
 Do not commit a real bot token. Before pushing, replace secrets in `.env.example` with placeholders and keep the real values only in Railway Variables.
 
