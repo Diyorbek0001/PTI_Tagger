@@ -39,7 +39,21 @@ export function UnitsPage() {
   const bulkAddUnits = async (items: Array<{ unitNumber: string; company: string }>) => { setBusy('bulk-add'); setNotice(`Adding ${items.length} units…`); const res = await fetch('/api/units/bulk', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ units: items }) }); const body = await res.json(); setBusy(null); if (!res.ok) { setNotice(body.error); return false; } setNotice(`Added ${body.added} unit${body.added === 1 ? '' : 's'}${body.skipped ? `; skipped ${body.skipped} duplicate${body.skipped === 1 ? '' : 's'}.` : '.'}`); setShowBulkAdd(false); await load(); return true; };
   const generate = async (unit: Unit) => { setBusy(unit.id); setNotice('Generating…'); const res = await fetch(`/api/units/${unit.id}/code`, { method: 'POST' }); const body = await res.json(); setBusy(null); if (!res.ok) return setNotice(body.error); setCode({ unit: unit.unit_number, value: body.code, expiresAt: body.expiresAt }); setNotice('Code generated successfully.'); };
   const unregister = async (unit: Unit) => { if (!confirm(`Unregister Unit ${unit.unit_number}? Registration history will remain.`)) return; setBusy(unit.id); const res = await fetch(`/api/units/${unit.id}/unregister`, { method: 'POST' }); const body = await res.json(); setBusy(null); setNotice(res.ok ? `Unit ${unit.unit_number} has been unregistered.` : body.error); if (res.ok) await load(); };
-  const deleteUnit = async (unit: Unit) => { if (!confirm(`Permanently delete Unit ${unit.unit_number}? This is only available for units without registration or PTI history.`)) return; setBusy(unit.id); const res = await fetch(`/api/units/${unit.id}/delete`, { method: 'DELETE' }); const body = await res.json(); setBusy(null); setNotice(res.ok ? `Unit ${unit.unit_number} was deleted.` : body.error); if (res.ok) await load(); };
+  const deleteUnit = async (unit: Unit) => {
+    if (!confirm(`Permanently delete Unit ${unit.unit_number}?`)) return;
+    setBusy(unit.id);
+    let res = await fetch(`/api/units/${unit.id}/delete`, { method: 'DELETE' });
+    let body = await res.json();
+    if (res.status === 409 && body.canCascade) {
+      const typed = prompt(`Unit ${unit.unit_number} has stored test/history data. Type ${unit.unit_number} to permanently delete the unit and all related PTI history.`);
+      if (typed?.trim() !== unit.unit_number) { setBusy(null); setNotice('Deletion cancelled. The unit number did not match.'); return; }
+      res = await fetch(`/api/units/${unit.id}/delete`, { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ cascade: true }) });
+      body = await res.json();
+    }
+    setBusy(null);
+    setNotice(res.ok ? `Unit ${unit.unit_number} was deleted.` : body.error);
+    if (res.ok) await load();
+  };
   const notifyOne = async (unit: Unit) => { setBusy(`notify-${unit.id}`); setNotice(`Notifying Unit ${unit.unit_number}…`); const res = await fetch(`/api/units/${unit.id}/notify`, { method: 'POST' }); const body = await res.json(); setBusy(null); setNotice(res.ok ? `Reminder sent to Unit ${unit.unit_number}.` : body.error); if (res.ok) await load(); };
   const notifyAll = async () => { setBusy('notify-all'); setNotice('Sending reminders to all missing units…'); const res = await fetch('/api/units/notify', { method: 'POST' }); const body = await res.json(); setBusy(null); if (!res.ok) setNotice(body.error); else setNotice(`Sent ${body.notified} reminder${body.notified === 1 ? '' : 's'}${body.failed.length ? `; ${body.failed.length} failed.` : '.'}`); await load(); };
   const managementActions = mayManage ? <div className="flex flex-wrap gap-3"><button disabled={!eligibleMissing || busy === 'notify-all'} className="rounded-lg bg-amber-500 px-4 py-2.5 font-semibold text-black shadow-lg shadow-amber-950/30 transition hover:-translate-y-0.5 hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-40" onClick={() => void notifyAll()}>{busy === 'notify-all' ? 'Notifying…' : `Notify all missing (${eligibleMissing})`}</button><button className="rounded-lg border border-blue-700 bg-blue-950/50 px-4 py-2.5 font-semibold text-blue-200 shadow-lg shadow-blue-950/20 transition hover:-translate-y-0.5 hover:border-blue-500 hover:bg-blue-900/60" onClick={() => setShowBulkAdd(true)}>Bulk Add</button><button className="rounded-lg bg-blue-600 px-4 py-2.5 font-semibold text-white shadow-lg shadow-blue-950/30 transition hover:-translate-y-0.5 hover:bg-blue-500" onClick={() => setShowAddUnit(true)}>+ Add Unit</button></div> : null;

@@ -17,6 +17,8 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ u
   if ('response' in auth) return auth.response;
 
   const { unitId } = await params;
+  const input = await request.json().catch(() => ({})) as { cascade?: unknown };
+  const cascade = input.cascade === true;
   const client = await db.connect();
   try {
     await client.query('begin');
@@ -39,16 +41,27 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ u
       return { table, count: Number(result.rows[0]?.count || 0) };
     }));
     const history = counts.filter(item => item.count > 0);
-    if (history.length) {
+    if (history.length && !cascade) {
       await client.query('rollback');
-      return NextResponse.json({ error: `Unit ${unit.unit_number} has history and cannot be deleted. Unregister it instead.`, history: history.map(item => item.table) }, { status: 409 });
+      return NextResponse.json({ error: `Unit ${unit.unit_number} has history. A second confirmation is required to delete it permanently.`, canCascade: true, history: history.map(item => item.table) }, { status: 409 });
     }
 
-    // Authorization codes and reminder delivery rows are disposable unit
-    // metadata. Keep the central audit trail, but detach rows whose optional
-    // foreign key points at this unit so deletion does not erase audit history.
+    // Authorization codes, reminder delivery rows, and (when explicitly
+    // confirmed) the unit's historical records are removed transactionally.
+    if (cascade) {
+      await client.query('delete from defects where unit_id=$1', [unitId]);
+      await client.query('update pti_submissions set resubmission_for_id=null where resubmission_for_id in (select id from pti_submissions where unit_id=$1)', [unitId]);
+      await client.query('delete from pti_submissions where unit_id=$1', [unitId]);
+      await client.query('delete from pti_notifications where unit_id=$1', [unitId]);
+      await client.query('delete from driver_unit_assignments where unit_id=$1', [unitId]);
+      await client.query('delete from pti_compliance_exclusions where unit_id=$1', [unitId]);
+      await client.query('delete from registration_audit_log where unit_id=$1', [unitId]);
+      await client.query('delete from unit_registrations where unit_id=$1', [unitId]);
+    }
     await client.query('delete from unit_authorization_codes where unit_id=$1', [unitId]);
     await client.query('delete from pti_notifications where unit_id=$1', [unitId]);
+    // Keep the central audit trail, but detach rows whose optional foreign
+    // key points at this unit so deletion does not erase audit history.
     await client.query('update audit_logs set unit_id=null where unit_id=$1', [unitId]);
     await client.query('delete from units where id=$1', [unitId]);
     await logAudit({
