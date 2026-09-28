@@ -1,47 +1,13 @@
-export const authCookieName = 'pti_admin_session';
-export const authSessionMaxAge = 60 * 60 * 12;
+export const authCookieName='pti_admin_session';
+export const authSessionMaxAge=60*60*12;
+export type WebRole='VIEWER'|'ADMIN'|'SUPERADMIN';
+export type WebSession={userId:string;username:string;displayName:string;role:WebRole;sessionVersion:number;expiresAt:number};
 
-export async function createSessionToken(username: string, password: string) {
-  const signature = await sign(username, password);
-  return `${encodeBase64Url(username)}.${signature}`;
-}
-
-export async function verifySessionToken(token: string | undefined, username: string, password: string) {
-  if (!token) return false;
-  const separator = token.lastIndexOf('.');
-  if (separator < 1) return false;
-  try {
-    const tokenUsername = decodeBase64Url(token.slice(0, separator));
-    if (tokenUsername !== username) return false;
-    const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']);
-    return crypto.subtle.verify('HMAC', key, decodeBytes(token.slice(separator + 1)), new TextEncoder().encode(tokenUsername));
-  } catch {
-    return false;
-  }
-}
-
-async function sign(value: string, password: string) {
-  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value));
-  return encodeBytes(new Uint8Array(signature));
-}
-
-function encodeBase64Url(value: string) {
-  return encodeBytes(new TextEncoder().encode(value));
-}
-
-function decodeBase64Url(value: string) {
-  return new TextDecoder().decode(decodeBytes(value));
-}
-
-function encodeBytes(bytes: Uint8Array) {
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
-}
-
-function decodeBytes(value: string) {
-  const base64 = value.replaceAll('-', '+').replaceAll('_', '/').padEnd(Math.ceil(value.length / 4) * 4, '=');
-  const binary = atob(base64);
-  return Uint8Array.from(binary, character => character.charCodeAt(0));
-}
+export function webSessionSecret(){return process.env.WEB_SESSION_SECRET||process.env.WEB_ADMIN_PASSWORD||''}
+export async function createSessionToken(session:Omit<WebSession,'expiresAt'>|string,secretOrPassword=webSessionSecret(),legacySecret?:string){const normalized=typeof session==='string'?{userId:session,username:session,displayName:session,role:'SUPERADMIN' as const,sessionVersion:1}:session;const secret=legacySecret||secretOrPassword;if(!secret)throw new Error('WEB_SESSION_SECRET or WEB_ADMIN_PASSWORD is required.');const payload:WebSession={...normalized,expiresAt:Math.floor(Date.now()/1000)+authSessionMaxAge};const encoded=encodeBase64Url(JSON.stringify(payload));return `${encoded}.${await sign(encoded,secret)}`}
+export async function verifySessionToken(token:string|undefined,secretOrUsername=webSessionSecret(),legacySecret?:string):Promise<WebSession|null|boolean>{if(!token)return legacySecret?false:null;const separator=token.lastIndexOf('.');if(separator<1)return legacySecret?false:null;try{const encoded=token.slice(0,separator),signature=token.slice(separator+1),secret=legacySecret||secretOrUsername;const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(secret),{name:'HMAC',hash:'SHA-256'},false,['verify']);const valid=await crypto.subtle.verify('HMAC',key,decodeBytes(signature),new TextEncoder().encode(encoded));if(!valid)return legacySecret?false:null;const payload=JSON.parse(decodeBase64Url(encoded)) as WebSession;if(!payload.userId||!payload.username||!['VIEWER','ADMIN','SUPERADMIN'].includes(payload.role)||payload.expiresAt<=Math.floor(Date.now()/1000))return legacySecret?false:null;if(legacySecret)return payload.username===secretOrUsername;return payload}catch{return legacySecret?false:null}}
+async function sign(value:string,secret:string){const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(secret),{name:'HMAC',hash:'SHA-256'},false,['sign']);return encodeBytes(new Uint8Array(await crypto.subtle.sign('HMAC',key,new TextEncoder().encode(value))))}
+function encodeBase64Url(value:string){return encodeBytes(new TextEncoder().encode(value))}
+function decodeBase64Url(value:string){return new TextDecoder().decode(decodeBytes(value))}
+function encodeBytes(bytes:Uint8Array){let binary='';for(const byte of bytes)binary+=String.fromCharCode(byte);return btoa(binary).replaceAll('+','-').replaceAll('/','_').replace(/=+$/,'')}
+function decodeBytes(value:string){const base64=value.replaceAll('-','+').replaceAll('_','/').padEnd(Math.ceil(value.length/4)*4,'=');const binary=atob(base64);return Uint8Array.from(binary,character=>character.charCodeAt(0))}

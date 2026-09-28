@@ -11,7 +11,9 @@
     "start:bot": "node --import tsx scripts/start-telegram-bot.ts",
     "bot": "DOTENV_CONFIG_PATH=.env.local node -r dotenv/config --import tsx scripts/start-telegram-bot.ts",
     "lint": "eslint .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "validate:fleet": "node --import tsx scripts/validate-fleet-features.ts",
+    "seed:demo": "node --import tsx scripts/seed-demo-data.ts"
   },
   "dependencies": {
     "@types/pg": "^8.11.11",

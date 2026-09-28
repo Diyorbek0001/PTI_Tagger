@@ -1,0 +1,1 @@
+import { DefectDetail } from '@/components/defect-detail';export default async function Page({params}:{params:Promise<{defectId:string}>}){const {defectId}=await params;return <main className="mx-auto max-w-5xl p-4 py-8 sm:p-8"><DefectDetail id={defectId}/></main>}

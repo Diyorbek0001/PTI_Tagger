@@ -1,0 +1,557 @@
+PTI TAGGER — SYSTEM GUIDE
+=========================
+
+1. WHAT THE SYSTEM IS
+---------------------
+
+PTI Tagger is a fleet-management website and Telegram bot used to:
+
+- Register truck/unit Telegram groups.
+- Associate a driver with each unit.
+- Collect weekly PTI photos or videos.
+- Copy PTI media into one central Telegram archive group.
+- Track which units submitted a PTI during the current week.
+- Review PTI submissions and leave fleet notes.
+- Approve a PTI or request that the driver resend it.
+- Notify one missing driver or all missing drivers.
+- Automatically remind missing drivers at most twice per week, with at least
+  three days between automatic reminders.
+- Highlight units whose Telegram group name contains Inactive, Hometime, or
+  Terminated so fleet staff know the unit may need reassignment.
+
+
+2. MAIN PARTS
+-------------
+
+Website
+  The website is the fleet administration panel. It shows assigned units,
+  drivers, weekly PTI status, last PTI time, last notification time, and review
+  records.
+
+Telegram bot
+  The bot registers unit groups, accepts PTI submissions, sends reminders, and
+  posts resend requests.
+
+PostgreSQL
+  PostgreSQL stores units, registrations, authorization codes, PTI submissions,
+  review notes, notification history, and reminder settings.
+
+Archive supergroup
+  This is the central Telegram group where all accepted PTI photos and videos
+  are stored. It must be a supergroup so the website can generate Telegram
+  message links.
+
+Railway
+  Railway hosts the production website, bot, reminder scheduler, and PostgreSQL
+  connection. Database migrations run automatically during deployment and
+  production startup.
+
+
+3. WEBSITE LOGIN
+----------------
+
+The website is protected by a username and password.
+
+Railway variables:
+
+  WEB_ADMIN_USERNAME
+  WEB_ADMIN_PASSWORD
+
+Opening the website while signed out redirects to /login. A successful login
+creates a secure HTTP-only session lasting 12 hours. Use the Sign out button to
+end the session.
+
+The /api/health endpoint remains public so Railway can verify that PostgreSQL is
+connected and the required database tables exist.
+
+
+4. ADDING UNITS
+---------------
+
+Single unit
+
+1. Sign in to the website.
+2. Select + Add Unit.
+3. Enter the unit number and company.
+4. Save the unit.
+
+Bulk units
+
+1. Select Bulk Add.
+2. Enter one unit per line using one of these formats:
+
+     6306, PTI
+     6307<TAB>PTI
+     6308 PTI
+
+3. Data can be pasted as two columns from Excel or Google Sheets.
+4. Review validation errors, then submit the batch.
+
+A batch can contain up to 500 units. Units that already exist are skipped
+safely.
+
+
+5. REGISTERING A UNIT TELEGRAM GROUP
+------------------------------------
+
+1. Find an unregistered unit on the Assigned Units page.
+2. Select Generate Code.
+3. Copy the generated /activate command.
+4. Add the production Telegram bot to the truck's Telegram group.
+5. Disable Group Privacy for the bot through BotFather if the bot must read
+   replies and media.
+6. Send the activation command in the truck group. Example:
+
+     /activate 915413 @driver_username
+
+The six-digit code expires after five minutes and can only be used once.
+
+After successful activation, the system stores:
+
+- Unit and company.
+- Telegram group ID and title.
+- Driver Telegram username.
+- Driver numeric Telegram ID when Telegram provides it.
+- Driver first and last name when Telegram provides them.
+- Registration date and history.
+
+If Telegram supplies only a username, the website displays @username in the
+Driver column.
+
+Useful group command:
+
+  /status
+
+This shows whether the group is registered and which unit/driver is assigned.
+
+
+6. SUBMITTING A PTI
+-------------------
+
+Normal workflow
+
+1. A dispatcher or group member sends a new photo or video in the registered
+   unit group.
+2. Reply directly to that photo or video with:
+
+     /pti
+
+3. The bot uploads the detected media to the archive supergroup.
+4. The bot posts submission information with the archived media:
+
+   - Unique PTI ID, such as PTI-000001.
+   - Unit number.
+   - Company.
+   - Driver.
+   - Source Telegram group.
+
+5. The bot confirms the submission in the truck group.
+6. The website shows the PTI as pending review.
+
+The bot uses the Telegram media file ID rather than forwarding the source
+message. This allows the system to handle messages that Telegram does not permit
+the bot to forward.
+
+If a submission fails, the same media message can be retried with /pti after the
+underlying problem is corrected.
+
+
+7. REVIEWING A PTI
+------------------
+
+1. Open PTI Review on the website.
+2. Find the submission by PTI ID, unit, company, driver, or status.
+3. Open its Telegram message link when available.
+4. Review the photo or video.
+5. Choose one of the review results:
+
+   All good
+     Marks the submission approved.
+
+   Request resend
+     Records the fleet member's note and sends the request back to the
+     registered unit Telegram group.
+
+When the replacement photo/video is submitted, it is connected to the earlier
+resend request in the database.
+
+
+8. WEEKLY TRACKING
+------------------
+
+The Assigned Units page shows:
+
+- Assigned unit count.
+- Units that sent a PTI this week.
+- Units still missing a PTI.
+- Units that are not registered.
+- Driver and Telegram group.
+- Last successful PTI date.
+- Last notification date.
+
+The week begins on Monday according to the database server's weekly date logic.
+A submission counts as sent after the media is successfully archived.
+
+Available filters include company, registered status, sent this week, and
+missing PTI. The search field searches units, drivers, and group names.
+
+
+9. DRIVER NOTIFICATIONS
+-----------------------
+
+Individual notification
+
+Select Notify beside a registered unit. The reminder is posted to that unit's
+Telegram group.
+
+Bulk notification
+
+Select Notify all missing. The bot sends a reminder to every eligible registered
+unit that has not submitted a PTI during the current week.
+
+Automatic notification
+
+- The bot checks for missing PTIs every hour.
+- A unit is not notified again within three days.
+- Automatic reminders are limited to two per week.
+- Reminders stop after the unit submits its weekly PTI.
+- Groups marked Inactive, Hometime, or Terminated are skipped.
+
+Driver mention
+
+The bot tags @driver_username when available. If there is no username but the
+driver's numeric Telegram ID is known, it creates a clickable Telegram mention.
+
+
+10. CUSTOMIZING THE REMINDER MESSAGE
+------------------------------------
+
+Only the Telegram account configured in this variable can change reminders:
+
+  TELEGRAM_ADMIN_USERNAME
+
+Enter the username without the @ symbol. Configuration must be performed in a
+private chat with the bot.
+
+Commands:
+
+  /adminhelp
+    Shows reminder configuration instructions.
+
+  /setreminder MESSAGE
+    Changes the reminder text and keeps the existing attachment.
+
+  /reminderconfig
+    Shows the current template and attachment.
+
+  /clearremindermedia
+    Removes the configured photo or video while keeping the text.
+
+Available placeholders:
+
+  @driver
+    Driver username mention or clickable numeric-ID mention.
+
+  @lastNotified
+    Day the unit was last notified, or Never.
+
+  @lastPTI
+    Day the unit last submitted a successful PTI, or Never.
+
+  @unit
+    Unit number.
+
+  @company
+    Company name.
+
+Example template:
+
+  Hello @driver,
+
+  Unit @unit still needs its weekly PTI.
+  Last PTI: @lastPTI
+  Last notified: @lastNotified
+
+  Please send a photo or video and reply to it with /pti.
+
+Adding a reminder photo or video
+
+1. Open a private chat with the bot from the authorized admin account.
+2. Send the desired photo or video.
+3. Put the reminder template in the media caption.
+4. Reply to that media with /setreminder.
+
+Telegram file IDs are tied to a specific bot. If the Telegram bot token is
+replaced with a newly created bot, the reminder media must be uploaded again.
+
+
+11. INACTIVE, HOMETIME, AND TERMINATED GROUPS
+---------------------------------------------
+
+If the stored Telegram group title contains any of these words, ignoring case:
+
+  Inactive
+  Hometime
+  Terminated
+
+The Assigned Units row is highlighted red and shows Reassign. Automatic and
+bulk reminders skip these groups. Group-title changes are synchronized when the
+bot receives Telegram's new-title event.
+
+
+12. TELEGRAM BOT SETUP
+----------------------
+
+Create and manage the bot through @BotFather.
+
+Important settings:
+
+- Add the bot to every registered truck group.
+- Add the bot to the PTI archive supergroup.
+- Allow it to send messages, photos, and videos.
+- Disable Group Privacy if it needs to receive replied media from group users.
+- After changing Group Privacy, remove and re-add the bot to existing groups if
+  Telegram does not apply the change immediately.
+
+Bot usernames cannot be changed after creation. The display name can be changed
+through BotFather. A different @username requires creating a new bot and
+updating TELEGRAM_BOT_TOKEN.
+
+When replacing the bot:
+
+1. Update TELEGRAM_BOT_TOKEN in Railway.
+2. Add the new bot to every truck group and the archive group.
+3. Disable Group Privacy for the new bot.
+4. Confirm the archive group ID with /chatid.
+5. Redeploy Railway.
+6. Upload reminder media again.
+7. Keep the Railway service at one replica to avoid Telegram polling conflicts.
+
+
+13. ARCHIVE GROUP SETUP
+-----------------------
+
+The central archive must be a Telegram supergroup.
+
+1. Add the current production bot to the archive group.
+2. Give it permission to send messages and media.
+3. Send /chatid in the archive group.
+4. Copy the returned ID into Railway as PTI_ARCHIVE_CHAT_ID.
+
+A supergroup ID normally begins with -100. The configured archive ID determines
+where all PTI media is stored and how the website generates Telegram links.
+
+
+14. RAILWAY VARIABLES
+---------------------
+
+Required production variables:
+
+  DATABASE_URL
+    Railway PostgreSQL connection. Usually configured as a Railway reference:
+    ${{Postgres.DATABASE_URL}}
+
+  TELEGRAM_BOT_TOKEN
+    Current production bot token from BotFather.
+
+  TELEGRAM_ADMIN_USERNAME
+    Telegram username allowed to configure reminders, without @.
+
+  PTI_ARCHIVE_CHAT_ID
+    Numeric archive supergroup ID beginning with -100.
+
+  PTI_TIME_ZONE
+    Timezone used for reminder dates, for example America/New_York.
+
+  WEB_ADMIN_USERNAME
+    Website login username.
+
+  WEB_ADMIN_PASSWORD
+    Long, unique website login password.
+
+  NODE_ENV
+    Must be production on Railway.
+
+Railway supplies PORT automatically. The application listens on that port. The
+public domain should target port 8080 when Railway presents that default target.
+
+Keep the application at one replica because Telegram long polling permits only
+one active consumer for a bot token, and multiple replicas could also duplicate
+scheduled reminders.
+
+
+15. DATABASE AND DEPLOYMENTS
+----------------------------
+
+The production start command runs all pending database migrations before the
+website and bot start. Migrations are safe to rerun and use a PostgreSQL advisory
+lock to prevent concurrent execution.
+
+The health endpoint checks both connectivity and schema readiness:
+
+  /api/health
+
+A healthy result includes:
+
+  "status": "healthy"
+  "database": "connected"
+  "schema": "ready"
+
+The production database is not loaded with the local sample units. Add real
+units through Add Unit or Bulk Add.
+
+
+16. COMMON PROBLEMS
+-------------------
+
+relation "units" does not exist
+  PostgreSQL is connected, but migrations have not created the schema. Deploy
+  the latest GitHub commit and confirm /api/health reports schema: ready.
+
+chat not found
+  The bot cannot access PTI_ARCHIVE_CHAT_ID. Add the current bot to the archive
+  group, run /chatid, verify the Railway variable, and redeploy if the ID changed.
+
+MESSAGE_ID_INVALID
+  Telegram would not permit forwarding the original media message. Current
+  versions of PTI Tagger avoid forwarding and upload media using its file ID.
+  Deploy the latest version and retry the same failed media with /pti.
+
+Reply directly to a photo or video with /pti
+  The bot did not receive usable media in the replied message. Disable Group
+  Privacy for the current bot, remove/re-add it, send a new photo or video, and
+  reply directly with /pti. Plain text "pti" without the slash is not a command.
+
+Bot polling conflict / error 409
+  More than one instance is using the same bot token. Stop the local bot while
+  Railway is running and keep Railway at one replica.
+
+Driver displays as a dash
+  Deploy the current version. The website displays the driver's first/last name
+  when supplied and otherwise falls back to @username.
+
+No Telegram message link
+  The archive must be a supergroup and PTI_ARCHIVE_CHAT_ID must begin with -100.
+
+Railway keeps serving an old commit
+  Turn off Wait for CI if no GitHub Actions workflow is configured, then choose
+  Deploy Latest Commit.
+
+
+17. LOCAL DEVELOPMENT
+---------------------
+
+1. Copy .env.example to .env.local.
+2. Fill in local credentials and Telegram settings.
+3. Install dependencies:
+
+     npm install
+
+4. Start local PostgreSQL:
+
+     npm run db:start
+
+5. Start the website:
+
+     npm run dev
+
+6. Start the bot only if the same token is not currently running on Railway:
+
+     npm run bot
+
+Other commands:
+
+  npm run migrate   Apply pending database migrations.
+  npm test          Run automated tests.
+  npm run build     Create the production build.
+  npm start         Run migrations, the production website, and the bot.
+
+Never commit .env.local, a real Telegram token, or real production passwords.
+
+
+18. NORMAL WEEKLY OPERATING FLOW
+--------------------------------
+
+1. Fleet staff opens Assigned Units.
+2. Check Sent this week and Missing PTI totals.
+3. Notify individual missing units or use Notify all missing.
+4. Drivers/dispatchers post PTI media and reply with /pti.
+5. Fleet staff opens PTI Review.
+6. Review each archived photo/video.
+7. Approve good submissions or request a resend with a note.
+8. Monitor red Reassign rows for Inactive, Hometime, or Terminated groups.
+9. Add/register replacement units when necessary.
+
+
+19. DEFECTS AND MAINTENANCE
+---------------------------
+
+During PTI Review, fleet staff can add one or more defects before choosing
+Save + Approve PTI or Save + Request Resend. Each defect has a category,
+description, severity (Minor, Attention Needed, or Critical), and starts Open.
+The Defects page filters and searches all findings. Open a defect to assign it,
+change severity/status, enter resolution notes, and resolve it explicitly.
+
+Critical is a recorded fleet decision; the software does not automatically
+shut down a truck. New PTIs do not automatically resolve old defects.
+
+
+20. DRIVER AND UNIT HISTORY
+---------------------------
+
+Open Drivers for driver compliance and history. Open any unit from Assigned
+Units for PTIs, defects, compliance, repeat problems, and assignment history.
+Use Reassign Driver on a registered unit to keep the Telegram group but change
+the driver. The old assignment is closed and never overwritten. Old PTIs and
+defects keep the driver snapshot recorded when they were submitted.
+
+
+21. COMPLIANCE
+--------------
+
+The week is Monday through Sunday in PTI_TIME_ZONE. A PTI submitted during its
+assigned week is On Time. On Time = 100 points, Late = 70, Missing = 0, and
+Excused weeks are removed from the denominator. Because the first version has
+no reliable way to associate a submission after Sunday with an earlier missed
+week, it does not fabricate Late records; late remains zero until such a link
+exists. Compliance begins only where real registration/assignment history is
+available. Inactive, Hometime, and Terminated assignment periods are excluded.
+
+
+22. DASHBOARD, REPORTS, AND AUDIT
+---------------------------------
+
+Dashboard shows fleet KPIs, four-week compliance, recent-week trend, open
+defect categories, repeat issues, and recent activity. A repeat issue means the
+same unit has at least two defects in the same category in the last eight weeks.
+
+Reports generates a Monday-Sunday management report. Download CSV or use the
+browser Print / PDF button for a management-ready copy. Audit Log records web,
+Telegram, bot, and system actions without passwords, tokens, or credentials.
+
+
+23. DEPLOYING THIS UPGRADE
+--------------------------
+
+No new Railway variables are required. Keep all existing variables, especially
+PTI_TIME_ZONE, and keep one application replica. Push the code and let Railway
+deploy normally. The existing guarded migration runner creates and backfills
+drivers and assignments, adds PTI driver snapshots, then creates defects,
+compliance exclusions, and audit logs. It does not delete or reset any table.
+
+The web login now supports VIEWER, ADMIN, and SUPERADMIN accounts. Existing
+WEB_ADMIN_USERNAME and WEB_ADMIN_PASSWORD bootstrap the first SUPERADMIN on the
+first login. Set optional WEB_SESSION_SECRET to a long random value for a
+separate session-signing key. Superadmins create, deactivate, reset, and change
+roles from /admin/users. Viewer accounts are read-only; Admin and Superadmin
+accounts can perform fleet operations and edit PTI reviews.
+
+Validation commands:
+
+  npm run migrate
+  npm test
+  npm run validate:fleet
+  npm run build
+
+
+END OF GUIDE

@@ -1,0 +1,1 @@
+import { DriverDetail } from '@/components/driver-detail';export default async function Page({params}:{params:Promise<{driverId:string}>}){const {driverId}=await params;return <main className="mx-auto max-w-6xl p-4 py-8 sm:p-8"><DriverDetail id={driverId}/></main>}

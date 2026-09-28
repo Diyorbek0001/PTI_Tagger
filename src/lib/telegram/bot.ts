@@ -6,6 +6,7 @@ import { db } from '@/lib/database';
 import { extractPtiMedia } from './pti-media';
 import { createProcessingSubmission, findExistingSubmission, markSubmissionFailed, markSubmissionForwarded } from '@/services/pti-submissions';
 import { clearReminderMedia, getReminderSettings, saveReminderSettings } from '@/services/reminder-settings';
+import { logAudit } from '@/services/audit';
 export function createBot(token: string) {
   const bot = new Bot(token);
   bot.command('adminhelp', async ctx => {
@@ -147,7 +148,8 @@ Placeholders:
   });
   bot.command('status', async ctx => { if (!ctx.chat) return void await ctx.reply('This command must be used in a Telegram group.'); const { rows } = await db.query('select u.unit_number, r.driver_first_name, r.driver_last_name from unit_registrations r join units u on u.id=r.unit_id where r.telegram_chat_id=$1 and r.is_active=true', [String(ctx.chat.id)]); const registration=rows[0] as {unit_number:string;driver_first_name:string|null;driver_last_name:string|null}|undefined; await ctx.reply(registration ? `✅ This group is registered.\n\nUnit: ${registration.unit_number}\nDriver: ${[registration.driver_first_name,registration.driver_last_name].filter(Boolean).join(' ')}` : 'This Telegram group is not currently registered to a unit.'); });
   bot.on('message:new_chat_title', async ctx => {
-    await db.query('update unit_registrations set telegram_chat_title=$2 where telegram_chat_id=$1 and is_active=true', [String(ctx.chat.id), ctx.message.new_chat_title]);
+    const {rows}=await db.query('update unit_registrations set telegram_chat_title=$2 where telegram_chat_id=$1 and is_active=true returning unit_id,driver_id', [String(ctx.chat.id), ctx.message.new_chat_title]);
+    if(rows[0])await logAudit({actor:{type:'TELEGRAM_USER',id:String(ctx.from.id),displayName:ctx.from.username||ctx.from.first_name},action:'UNIT_UPDATED',entityType:'UNIT',entityId:rows[0].unit_id,unitId:rows[0].unit_id,driverId:rows[0].driver_id,description:`Telegram group renamed to ${ctx.message.new_chat_title}`});
     console.info('Registered Telegram group title updated:', { chatId: String(ctx.chat.id), title: ctx.message.new_chat_title });
   });
   bot.catch(error => console.error('Telegram bot error:', error.error));

@@ -1,5 +1,6 @@
 import './globals.css';
 import type { Metadata } from 'next';
 import { LogoutButton } from '@/components/logout-button';
-export const metadata: Metadata = { title: 'PTI Registration', description: 'Telegram unit registration' };
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) { return <html lang="en"><body><LogoutButton />{children}</body></html>; }
+import { AppNav } from '@/components/app-nav';
+export const metadata: Metadata = { title: 'PTI Tagger', description: 'Fleet PTI, defect, and compliance management' };
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) { return <html lang="en"><body><AppNav/><LogoutButton />{children}</body></html>; }

@@ -1,0 +1,2 @@
+import { NextResponse } from 'next/server';import { currentWebUser } from '@/services/web-users';
+export async function GET(request:Request){const current=await currentWebUser(request);if(!current)return NextResponse.json({error:'Authentication required.'},{status:401});return NextResponse.json({user:{id:current.user.id,username:current.user.username,displayName:current.user.display_name,role:current.user.role}})}

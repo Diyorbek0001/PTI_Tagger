@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { db } from '@/lib/database';
+import { logAudit,requestIp,webActor } from '@/services/audit';
+import { requireWebRole } from '@/services/web-users';
 
 const bulkUnitsSchema = z.object({
   units: z.array(z.object({
@@ -11,12 +13,16 @@ const bulkUnitsSchema = z.object({
 
 export async function POST(request: Request) {
   try {
+    const auth=await requireWebRole(request,['ADMIN','SUPERADMIN']);if('response'in auth)return auth.response;
     const input = bulkUnitsSchema.parse(await request.json());
     const unique = [...new Map(input.units.map(unit => [unit.unitNumber, unit])).values()];
-    const { rows } = await db.query<{ unit_number: string }>(`insert into units (unit_number, company)
+    const client=await db.connect();let rows:Array<{id:string;unit_number:string;company:string}>=[];
+    try{await client.query('begin');const inserted=await client.query<{id:string;unit_number:string;company:string}>(`insert into units (unit_number, company)
       select * from unnest($1::text[], $2::text[])
       on conflict (unit_number) do nothing
-      returning unit_number`, [unique.map(unit => unit.unitNumber), unique.map(unit => unit.company)]);
+      returning id,unit_number,company`, [unique.map(unit => unit.unitNumber), unique.map(unit => unit.company)]);rows=inserted.rows;
+      for(const unit of rows)await logAudit({actor:webActor(auth.user),action:'UNIT_CREATED',entityType:'UNIT',entityId:unit.id,unitId:unit.id,description:`Unit ${unit.unit_number} created in bulk`,metadata:{company:unit.company,bulk:true},ipAddress:requestIp(request)},client);
+      await client.query('commit');}catch(error){await client.query('rollback');throw error}finally{client.release()}
     const added = new Set(rows.map(row => row.unit_number));
     return NextResponse.json({
       added: added.size,

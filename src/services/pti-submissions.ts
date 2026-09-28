@@ -1,6 +1,8 @@
 import type { PoolClient } from 'pg';
 import { db } from '@/lib/database';
 import { formatPtiReference } from '@/lib/pti-reference';
+import { logAudit } from '@/services/audit';
+import { startOfMondayWeek } from '@/lib/date-ranges';
 
 export type CreatePtiSubmissionInput = {
   unitId: string; registrationId: string; sourceChatId: string; sourceChatTitle: string;
@@ -19,8 +21,8 @@ export async function createProcessingSubmission(input: CreatePtiSubmissionInput
     await client.query('begin');
     const previous = await latestResendRequest(client, input.unitId);
     const { rows } = await client.query(`insert into pti_submissions
-      (unit_id, registration_id, source_chat_id, source_chat_title, source_message_id, submitted_by_user_id, submitted_by_username, media_type, telegram_file_id, archive_chat_id, resubmission_for_id)
-      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+      (unit_id, registration_id, source_chat_id, source_chat_title, source_message_id, submitted_by_user_id, submitted_by_username, media_type, telegram_file_id, archive_chat_id, resubmission_for_id, compliance_week_start)
+      values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
       on conflict (source_chat_id, source_message_id) do update set
         unit_id=excluded.unit_id, registration_id=excluded.registration_id,
         source_chat_title=excluded.source_chat_title,
@@ -29,10 +31,10 @@ export async function createProcessingSubmission(input: CreatePtiSubmissionInput
         media_type=excluded.media_type, telegram_file_id=excluded.telegram_file_id,
         archive_chat_id=excluded.archive_chat_id, archive_message_id=null,
         status='processing', failure_reason=null,
-        resubmission_for_id=excluded.resubmission_for_id, updated_at=now()
+        resubmission_for_id=excluded.resubmission_for_id, compliance_week_start=excluded.compliance_week_start, updated_at=now()
       where pti_submissions.status='failed'
       returning id, pti_number`,
-      [input.unitId,input.registrationId,input.sourceChatId,input.sourceChatTitle,input.sourceMessageId,input.submittedByUserId??null,input.submittedByUsername??null,input.mediaType,input.fileId,input.archiveChatId,previous?.id??null]);
+      [input.unitId,input.registrationId,input.sourceChatId,input.sourceChatTitle,input.sourceMessageId,input.submittedByUserId??null,input.submittedByUsername??null,input.mediaType,input.fileId,input.archiveChatId,previous?.id??null,startOfMondayWeek()]);
     if (!rows[0]) throw new Error('This photo or video has already been submitted for PTI review.');
     if (previous) await client.query("update pti_submissions set status='resubmitted' where id=$1", [previous.id]);
     await client.query('commit');
@@ -47,7 +49,11 @@ async function latestResendRequest(client: PoolClient, unitId: string) {
 }
 
 export async function markSubmissionForwarded(id: string, archiveMessageId: number) {
-  await db.query("update pti_submissions set archive_message_id=$2, status='pending_review', failure_reason=null where id=$1", [id, archiveMessageId]);
+  const client=await db.connect();
+  try { await client.query('begin'); const {rows}=await client.query("update pti_submissions set archive_message_id=$2, status='pending_review', failure_reason=null where id=$1 returning *", [id, archiveMessageId]);
+    const item=rows[0]; if(item) await logAudit({actor:{type:'BOT',displayName:'PTI Bot'},action:item.resubmission_for_id?'PTI_REPLACEMENT_SUBMITTED':'PTI_SUBMITTED',entityType:'PTI',entityId:id,unitId:item.unit_id,driverId:item.driver_id,description:`${formatPtiReference(item.pti_number)} submitted`,metadata:{archiveMessageId}},client);
+    await client.query('commit');
+  } catch(error){await client.query('rollback');throw error;} finally{client.release();}
 }
 
 export async function markSubmissionFailed(id: string, reason: string) {

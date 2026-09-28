@@ -2,6 +2,12 @@
 
 Next.js, PostgreSQL, and Telegram bot application for unit registration, PTI media collection, weekly compliance tracking, fleet review, and driver reminders.
 
+The web application also includes a fleet dashboard, multi-defect PTI review,
+defect lifecycle management, immutable driver/unit assignment history, driver
+and unit profiles, Monday-based compliance analytics, deterministic eight-week
+repeat-issue detection, weekly management reports, CSV/Print-to-PDF export, and
+a centralized audit log.
+
 ## Local development
 
 1. Install Node.js 20+ and run `npm install`.
@@ -23,7 +29,8 @@ The repository is configured to run the website, Telegram bot, reminder schedule
    - `WEB_ADMIN_USERNAME` — username for the website login page.
    - `WEB_ADMIN_PASSWORD` — a long, unique password for the website login page.
    - `PTI_ARCHIVE_CHAT_ID` — archive supergroup ID beginning with `-100`.
-   - `PTI_TIME_ZONE` — timezone used for `@lastPTI` and `@lastNotified`, for example `America/New_York`.
+- `PTI_TIME_ZONE` — timezone used for `@lastPTI` and `@lastNotified`, for example `America/New_York`.
+- `WEB_SESSION_SECRET` — optional long random signing secret for web sessions; defaults to `WEB_ADMIN_PASSWORD` when omitted.
    - `NODE_ENV=production`.
 4. Generate a Railway public domain for the application service and deploy.
 5. Keep this service at exactly **one replica**. The Telegram bot uses long polling, so multiple replicas using the same token would compete for updates and duplicate the reminder scheduler.
@@ -61,7 +68,31 @@ Available placeholders are `@driver`, `@lastNotified`, `@lastPTI`, `@unit`, and 
 - `npm run build` — create the isolated production build in `.next-build`.
 - `npm start` — run the production website and bot together.
 - `npm test` — run unit tests.
+- `npm run validate:fleet` — run a self-cleaning PostgreSQL integration check for driver snapshots, reassignment, defects, review, and audit.
+
+## Compliance rules
+
+Weeks run Monday through Sunday in `PTI_TIME_ZONE`. An assigned unit submission
+in that week is on time (100 points), a clearly associated late submission is
+70 points, a missing submission is 0, and an excused week is excluded. The
+initial implementation does not fabricate late associations when old data does
+not identify an expected week, so those records remain missing. Inactive,
+Hometime, and Terminated assignment periods are excluded when the stored group
+history identifies them. Repeat issues are computed as two or more defects in
+the same category for the same unit during the previous eight weeks.
 
 ## Security note
 
 The website and its APIs are protected by an HTTP-only signed session cookie. Railway's `/api/health` endpoint remains public for deployment health checks. PostgreSQL remains server-only; browser code does not receive `DATABASE_URL`, credentials, or the Telegram token.
+
+## Web roles
+
+The first successful login bootstraps `WEB_ADMIN_USERNAME` and
+`WEB_ADMIN_PASSWORD` as the initial `SUPERADMIN`. Superadmins manage accounts
+at `/admin/users`:
+
+- `VIEWER` — read-only dashboard, history, reports, and audit access.
+- `ADMIN` — fleet operations, reminders, defect updates, reassignment, and PTI review editing.
+- `SUPERADMIN` — all Admin permissions plus account creation, role changes, password resets, and deactivation.
+
+Role checks are enforced by the server APIs as well as the navigation/UI.

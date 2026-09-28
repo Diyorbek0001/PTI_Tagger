@@ -3,6 +3,8 @@ import { db } from '@/lib/database';
 import { groupNeedsReassignment } from '@/lib/unit-status';
 import { renderReminderTemplate, escapeHtml } from '@/lib/reminder-template';
 import { getReminderSettings, type ReminderSettings } from '@/services/reminder-settings';
+import { logAudit } from '@/services/audit';
+import { startOfMondayWeek } from '@/lib/date-ranges';
 
 type NotificationType = 'manual' | 'automatic';
 
@@ -57,6 +59,7 @@ export async function notifyTarget(api: Api, target: ReminderTarget, type: Notif
   await db.query(`insert into pti_notifications
     (unit_id, registration_id, telegram_chat_id, telegram_message_id, notification_type, sent_by)
     values ($1,$2,$3,$4,$5,$6)`, [target.unit_id, target.registration_id, target.telegram_chat_id, message.message_id, type, sentBy]);
+  await logAudit({actor:{type:type==='automatic'?'SYSTEM':'WEB_USER',id:sentBy,displayName:sentBy},action:type==='automatic'?'AUTO_REMINDER_SENT':'REMINDER_SENT',entityType:'REMINDER',entityId:String(message.message_id),unitId:target.unit_id,description:`PTI reminder sent to Unit ${target.unit_number}`,metadata:{registrationId:target.registration_id,notificationType:type}});
   return message;
 }
 
@@ -71,9 +74,9 @@ export async function notifyAllMissing(sentBy: string, api = new Api(requiredTok
   const { rows } = await db.query(`${targetQuery}
     where not exists (
       select 1 from pti_submissions s where s.unit_id=u.id
-      and s.created_at >= date_trunc('week', now())
+      and s.compliance_week_start = $1::date
       and s.status not in ('processing','failed')
-    ) order by u.unit_number`);
+    ) order by u.unit_number`,[startOfMondayWeek()]);
   let notified = 0;
   const settings = await getReminderSettings();
   const failed: Array<{ unit: string; reason: string }> = [];
@@ -93,7 +96,7 @@ export async function runAutomaticPtiReminders(api: Api) {
   const { rows } = await db.query(`${targetQuery}
     where not exists (
       select 1 from pti_submissions s where s.unit_id=u.id
-      and s.created_at >= date_trunc('week', now())
+      and s.compliance_week_start = $1::date
       and s.status not in ('processing','failed')
     )
     and not exists (
@@ -103,9 +106,9 @@ export async function runAutomaticPtiReminders(api: Api) {
     and (
       select count(*) from pti_notifications n where n.registration_id=r.id
       and n.notification_type='automatic'
-      and n.sent_at >= date_trunc('week', now())
+      and n.sent_at >= ($1::date::timestamp at time zone $2)
     ) < 2
-    order by u.unit_number`);
+    order by u.unit_number`,[startOfMondayWeek(),process.env.PTI_TIME_ZONE||'America/New_York']);
   const settings = await getReminderSettings();
   for (const target of rows as ReminderTarget[]) {
     if (groupNeedsReassignment(target.telegram_chat_title)) continue;

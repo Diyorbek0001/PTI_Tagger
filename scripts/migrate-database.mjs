@@ -10,6 +10,7 @@ if (!existsSync(migrationDir)) throw new Error(`Migration directory not found: $
 
 await client.connect();
 try {
+  await client.query("select set_config('app.pti_time_zone', $1, false)", [process.env.PTI_TIME_ZONE || 'America/New_York']);
   await client.query("select pg_advisory_lock(hashtext('pti_database_migrations'))");
   await client.query('create table if not exists schema_migrations (name text primary key, applied_at timestamptz not null default now())');
   for (const name of readdirSync(migrationDir).filter(file => file.endsWith('.sql')).sort()) {

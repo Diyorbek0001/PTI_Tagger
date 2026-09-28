@@ -6,9 +6,11 @@ export async function GET() {
     const { rows } = await db.query(`select
       to_regclass('public.units') is not null as units_ready,
       to_regclass('public.unit_registrations') is not null as registrations_ready,
-      to_regclass('public.pti_submissions') is not null as submissions_ready`);
-    const schema = rows[0] as { units_ready: boolean; registrations_ready: boolean; submissions_ready: boolean };
-    if (!schema.units_ready || !schema.registrations_ready || !schema.submissions_ready) {
+      to_regclass('public.pti_submissions') is not null as submissions_ready,
+      to_regclass('public.defects') is not null as defects_ready,
+      to_regclass('public.audit_logs') is not null as audit_ready`);
+    const schema = rows[0] as { units_ready: boolean; registrations_ready: boolean; submissions_ready: boolean; defects_ready:boolean; audit_ready:boolean };
+    if (!schema.units_ready || !schema.registrations_ready || !schema.submissions_ready || !schema.defects_ready || !schema.audit_ready) {
       return NextResponse.json({ status: 'unhealthy', database: 'connected', schema: 'missing' }, { status: 503 });
     }
     return NextResponse.json({ status: 'healthy', database: 'connected', schema: 'ready', timestamp: new Date().toISOString() });

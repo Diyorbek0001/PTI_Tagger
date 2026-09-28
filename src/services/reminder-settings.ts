@@ -1,4 +1,5 @@
 import { db } from '@/lib/database';
+import { logAudit } from '@/services/audit';
 
 export type ReminderSettings = {
   message_template: string;
@@ -40,6 +41,7 @@ export async function saveReminderSettings(input: { template: string; media?: { 
     on conflict (singleton) do update set message_template=excluded.message_template,
       media_type=excluded.media_type, telegram_file_id=excluded.telegram_file_id,
       updated_by=excluded.updated_by, updated_at=now()`, [template, mediaType, fileId, input.updatedBy]);
+  await logAudit({actor:{type:'TELEGRAM_USER',id:input.updatedBy,displayName:input.updatedBy},action:'REMINDER_SETTINGS_UPDATED',entityType:'SETTINGS',entityId:'pti-reminder',description:'PTI reminder template or attachment updated',metadata:{mediaType}});
 }
 
 export async function clearReminderMedia(updatedBy: string) {
@@ -49,4 +51,5 @@ export async function clearReminderMedia(updatedBy: string) {
     values (true,$1,null,null,$2)
     on conflict (singleton) do update set media_type=null, telegram_file_id=null,
       updated_by=excluded.updated_by, updated_at=now()`, [current.message_template, updatedBy]);
+  await logAudit({actor:{type:'TELEGRAM_USER',id:updatedBy,displayName:updatedBy},action:'REMINDER_SETTINGS_UPDATED',entityType:'SETTINGS',entityId:'pti-reminder',description:'PTI reminder attachment removed'});
 }
