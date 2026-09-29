@@ -107,7 +107,7 @@ Placeholders:
 
     const sourceMessage = ctx.message?.reply_to_message;
     const media = extractPtiMedia(sourceMessage);
-    if (!sourceMessage || !media) return void await ctx.reply('❌ Reply directly to a photo or video with /pti.');
+    if (!sourceMessage || !media) return void await ctx.reply('❌ Reply directly to a photo, GIF, image/video file, or video with /pti.');
 
     const { rows } = await db.query(`select r.id as registration_id, r.driver_username, r.driver_first_name, r.driver_last_name, u.id as unit_id, u.unit_number, u.company
       from unit_registrations r join units u on u.id=r.unit_id
@@ -122,13 +122,14 @@ Placeholders:
     try {
       const created = await createProcessingSubmission({ unitId: registration.unit_id, registrationId: registration.registration_id, sourceChatId: String(chat.id), sourceChatTitle: chat.title ?? 'Untitled group', sourceMessageId: sourceMessage.message_id, submittedByUserId: ctx.from ? String(ctx.from.id) : undefined, submittedByUsername: ctx.from?.username, mediaType: media.type, fileId: media.fileId, archiveChatId });
       submissionId = created.id;
-      const archived = media.type === 'photo'
-        ? await ctx.api.sendPhoto(archiveChatId, media.fileId, sourceMessage.caption ? { caption: sourceMessage.caption } : undefined)
-        : await ctx.api.sendVideo(archiveChatId, media.fileId, sourceMessage.caption ? { caption: sourceMessage.caption } : undefined);
+      // Copy the original message instead of re-sending a typed file. Telegram
+      // then preserves GIFs, PNG/JPG files sent as documents, and all supported
+      // video formats exactly as the driver supplied them.
+      const archived = await ctx.api.copyMessage(archiveChatId, chat.id, sourceMessage.message_id);
       await markSubmissionForwarded(submissionId, archived.message_id);
       const driverName = [registration.driver_first_name, registration.driver_last_name].filter(Boolean).join(' ') || (registration.driver_username ? `@${registration.driver_username}` : 'Not available');
       await ctx.api.sendMessage(archiveChatId, `PTI submission\nPTI ID: ${created.reference}\nUnit: ${registration.unit_number}\nCompany: ${registration.company}\nDriver: ${driverName}\nSource group: ${chat.title ?? 'Untitled group'}`, { reply_parameters: { message_id: archived.message_id } });
-      await ctx.reply(`✅ PTI submitted for review\n\nPTI ID: ${created.reference}\nUnit: ${registration.unit_number}\nMedia: ${media.type === 'video' ? 'Video' : 'Photo'}\nStatus: Pending review`);
+      await ctx.reply(`✅ PTI submitted for review\n\nPTI ID: ${created.reference}\nUnit: ${registration.unit_number}\nMedia: ${media.type === 'video' ? 'Video' : 'Image'}\nStatus: Pending review`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to forward PTI media.';
       if (submissionId) await markSubmissionFailed(submissionId, message);
