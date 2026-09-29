@@ -46,7 +46,7 @@ Add the bot to each truck group and the PTI archive group. Run `/chatid` in the 
 - Generate an activation code from the Assigned Units page, then activate a truck group with `/activate CODE @driverusername`.
 - Reply directly to a photo or video with `/pti` to submit it for fleet review.
 - Use `/status` to check the group registration.
-- Weekly reminders tag the registered driver. Missing units can be notified individually or together from the website; automatic reminders run at most twice weekly and at least three days apart.
+- Weekly reminders tag the registered driver. Missing units can be notified individually or together from the website. Enable **Auto-send** per registered unit, then choose its reminder cycle in **Auto-send settings** (default: every 2 days); reminders stop as soon as that week's PTI is submitted.
 
 ### Configure reminder messages
 

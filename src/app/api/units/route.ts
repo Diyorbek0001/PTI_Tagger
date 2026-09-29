@@ -16,7 +16,8 @@ export async function GET() {
       coalesce(registrations.items, '[]'::json) as unit_registrations,
       pti.last_pti_at,
       coalesce(pti.sent_this_week, false) as pti_sent_this_week,
-      notifications.last_notified_at
+      notifications.last_notified_at,
+      u.auto_reminders_enabled
       from units u
       left join lateral (
         select json_agg(r order by r.registered_at desc) as items

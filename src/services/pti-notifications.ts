@@ -93,23 +93,18 @@ export async function notifyAllMissing(sentBy: string, api = new Api(requiredTok
 }
 
 export async function runAutomaticPtiReminders(api: Api) {
+  const settings = await getReminderSettings();
   const { rows } = await db.query(`${targetQuery}
     where not exists (
       select 1 from pti_submissions s where s.unit_id=u.id
       and s.compliance_week_start = $1::date
       and s.status not in ('processing','failed')
     )
+    and u.auto_reminders_enabled=true
     and not exists (
       select 1 from pti_notifications n where n.registration_id=r.id
-      and n.sent_at > now() - interval '3 days'
-    )
-    and (
-      select count(*) from pti_notifications n where n.registration_id=r.id
-      and n.notification_type='automatic'
-      and n.sent_at >= ($1::date::timestamp at time zone $2)
-    ) < 2
-    order by u.unit_number`,[startOfMondayWeek(),process.env.PTI_TIME_ZONE||'America/New_York']);
-  const settings = await getReminderSettings();
+      and n.sent_at > now() - ($2::integer * interval '1 day')
+    ) order by u.unit_number`,[startOfMondayWeek(),settings.auto_reminder_interval_days]);
   for (const target of rows as ReminderTarget[]) {
     if (groupNeedsReassignment(target.telegram_chat_title)) continue;
     try {
