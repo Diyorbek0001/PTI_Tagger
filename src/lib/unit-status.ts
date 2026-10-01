@@ -1,4 +1,4 @@
-const reassignmentWords = ['inactive', 'hometime', 'terminated'];
+const reassignmentWords = ['inactive', 'hometime', 'home time', 'terminated'];
 
 export function groupNeedsReassignment(title: string | null | undefined) {
   const normalized = title?.toLowerCase() ?? '';
