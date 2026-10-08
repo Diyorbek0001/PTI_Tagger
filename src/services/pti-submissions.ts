@@ -2,7 +2,7 @@ import type { PoolClient } from 'pg';
 import { db } from '@/lib/database';
 import { formatPtiReference } from '@/lib/pti-reference';
 import { logAudit } from '@/services/audit';
-import { ptiCycleStart, todayInTimeZone } from '@/lib/date-ranges';
+import { dateOnly, ptiCycleStart, todayInTimeZone } from '@/lib/date-ranges';
 import { getReminderSettings } from '@/services/reminder-settings';
 
 export type CreatePtiSubmissionInput = {
@@ -18,7 +18,7 @@ export async function findExistingSubmission(sourceChatId: string, sourceMessage
 
 export async function createProcessingSubmission(input: CreatePtiSubmissionInput) {
   const cycleSettings = await getReminderSettings();
-  const cycleStart = ptiCycleStart(todayInTimeZone(), cycleSettings.pti_cycle_days, String(cycleSettings.pti_cycle_anchor_date).slice(0, 10));
+  const cycleStart = ptiCycleStart(todayInTimeZone(), cycleSettings.pti_cycle_days, dateOnly(cycleSettings.pti_cycle_anchor_date));
   const client = await db.connect();
   try {
     await client.query('begin');
