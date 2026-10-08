@@ -138,11 +138,12 @@ Placeholders:
       await ctx.reply(`❌ PTI submission failed. ${message}`);
     }
   });
-  bot.command('chatid', async ctx => {
+  const replyWithChatId = async (ctx: Context) => {
     if (!ctx.chat || (ctx.chat.type !== 'group' && ctx.chat.type !== 'supergroup')) return void await ctx.reply('Use /chatid inside the Telegram group you want to configure.');
     console.info('Telegram group identified:', { chatId: String(ctx.chat.id), title: ctx.chat.title, type: ctx.chat.type });
     await ctx.reply(`Telegram chat ID: ${ctx.chat.id}`);
-  });
+  };
+  bot.command(['chatid', 'groupid'], replyWithChatId);
   bot.hears(/^group?id$/i, async ctx => {
     if (!ctx.chat || (ctx.chat.type !== 'group' && ctx.chat.type !== 'supergroup')) return void await ctx.reply('Send grouID inside the Telegram group you want to configure.');
     console.info('Telegram group identified:', { chatId: String(ctx.chat.id), title: ctx.chat.title, type: ctx.chat.type });
