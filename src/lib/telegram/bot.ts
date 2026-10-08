@@ -5,6 +5,7 @@ import { activateRegistration } from '@/services/registration';
 import { db } from '@/lib/database';
 import { extractPtiMedia } from './pti-media';
 import { createProcessingSubmission, findExistingSubmission, markSubmissionFailed, markSubmissionForwarded } from '@/services/pti-submissions';
+import { telegramMessageLink } from '@/lib/telegram/message-link';
 import { clearReminderMedia, getReminderSettings, saveReminderSettings } from '@/services/reminder-settings';
 import { logAudit } from '@/services/audit';
 import { ptiTimeZone } from '@/lib/date-ranges';
@@ -121,7 +122,8 @@ Placeholders:
 
     let submissionId: string | undefined;
     try {
-      const created = await createProcessingSubmission({ unitId: registration.unit_id, registrationId: registration.registration_id, sourceChatId: String(chat.id), sourceChatTitle: chat.title ?? 'Untitled group', sourceMessageId: sourceMessage.message_id, submittedByUserId: ctx.from ? String(ctx.from.id) : undefined, submittedByUsername: ctx.from?.username, mediaType: media.type, fileId: media.fileId, archiveChatId });
+      const sourceMessageLink = telegramMessageLink(chat.id, sourceMessage.message_id, chat.username) ?? 'N/A';
+      const created = await createProcessingSubmission({ unitId: registration.unit_id, registrationId: registration.registration_id, sourceChatId: String(chat.id), sourceChatTitle: chat.title ?? 'Untitled group', sourceMessageId: sourceMessage.message_id, sourceMessageLink, submittedByUserId: ctx.from ? String(ctx.from.id) : undefined, submittedByUsername: ctx.from?.username, mediaType: media.type, fileId: media.fileId, archiveChatId });
       submissionId = created.id;
       // Copy the original message instead of re-sending a typed file. Telegram
       // then preserves GIFs, PNG/JPG files sent as documents, and all supported
@@ -129,7 +131,7 @@ Placeholders:
       const archived = await ctx.api.copyMessage(archiveChatId, chat.id, sourceMessage.message_id);
       await markSubmissionForwarded(submissionId, archived.message_id);
       const driverName = [registration.driver_first_name, registration.driver_last_name].filter(Boolean).join(' ') || (registration.driver_username ? `@${registration.driver_username}` : 'Not available');
-      await ctx.api.sendMessage(archiveChatId, `PTI submission\nPTI ID: ${created.reference}\nDate & time: ${formatTelegramDate(sourceMessage.date)}\nUnit: ${registration.unit_number}\nCompany: ${registration.company}\nDriver: ${driverName}\nSource group: ${chat.title ?? 'Untitled group'}`, { reply_parameters: { message_id: archived.message_id } });
+      await ctx.api.sendMessage(archiveChatId, `PTI submission\nPTI ID: ${created.reference}\nDate & time: ${formatTelegramDate(sourceMessage.date)}\nUnit: ${registration.unit_number}\nCompany: ${registration.company}\nDriver: ${driverName}\nSource group: ${chat.title ?? 'Untitled group'}\nMessage Link: ${sourceMessageLink}`, { reply_parameters: { message_id: archived.message_id } });
       await ctx.reply(`✅ PTI submitted for review\n\nPTI ID: ${created.reference}\nUnit: ${registration.unit_number}\nMedia: ${media.type === 'video' ? 'Video' : 'Image'}\nStatus: Pending review`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to forward PTI media.';
