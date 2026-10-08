@@ -9,6 +9,9 @@ input, select { @apply outline-none transition duration-200 focus:border-blue-50
 ::selection { @apply bg-blue-500/30 text-white; }
 @media print {
   nav, button, .print\:hidden { display: none !important; }
+  .print-hide-section { display: none !important; }
   body { background: white !important; color: #111827 !important; }
   section, table { color: #111827 !important; box-shadow: none !important; }
+  section, section > div { background: white !important; border-color: #d1d5db !important; }
+  h1, h2, th, td, p { color: #111827 !important; }
 }

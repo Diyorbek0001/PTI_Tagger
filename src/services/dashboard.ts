@@ -1,10 +1,13 @@
 import { db } from '@/lib/database';
 import { getCompliance } from '@/services/compliance';
 import { getRepeatIssues } from '@/services/repeat-issues';
-import { startOfMondayWeek } from '@/lib/date-ranges';
+import { getCurrentPtiCycle } from '@/services/reminder-settings';
+import { cycleAgoStart, dateOnly } from '@/lib/date-ranges';
 
 export async function getDashboardData() {
-  const week=startOfMondayWeek();
+  const cycle=await getCurrentPtiCycle();
+  const week=cycle.start;
+  const trendStart=cycleAgoStart(8,cycle.pti_cycle_days,dateOnly(cycle.pti_cycle_anchor_date));
   const [counts, categories, recent, repeatIssues, compliance, trend] = await Promise.all([
     db.query(`select
       count(*)::int total_units,count(*) filter(where registration_status='registered')::int registered_units,
@@ -22,12 +25,12 @@ export async function getDashboardData() {
     db.query(`select w::date week_start,
       count(distinct a.unit_id)::int expected,
       count(distinct s.unit_id)::int submitted
-      from generate_series(($1::date-interval '7 weeks')::date,$1::date,interval '1 week') w
-      left join driver_unit_assignments a on (a.started_at is null or a.started_at < ((w+interval '7 days') at time zone $2)) and (a.ended_at is null or a.ended_at >= (w at time zone $2))
+      from generate_series($1::date,$2::date,($4::text || ' days')::interval) w
+      left join driver_unit_assignments a on (a.started_at is null or a.started_at < ((w+($4::int*interval '1 day')) at time zone $3)) and (a.ended_at is null or a.ended_at >= (w at time zone $3))
       left join pti_submissions s on s.unit_id=a.unit_id and s.compliance_week_start=w::date and s.status not in ('processing','failed')
-      group by w order by w`,[week,process.env.PTI_TIME_ZONE||'America/New_York']),
+      group by w order by w`,[trendStart,week,process.env.PTI_TIME_ZONE||'America/New_York',cycle.pti_cycle_days]),
   ]);
   const kpis=counts.rows[0];
-  return { kpis:{...kpis,pti_missing:Math.max(0,kpis.registered_units-kpis.pti_sent-kpis.excluded_units)}, categories:categories.rows,
+  return { currentCycle:{start:cycle.start,end:cycle.end,days:cycle.pti_cycle_days}, kpis:{...kpis,pti_missing:Math.max(0,kpis.registered_units-kpis.pti_sent-kpis.excluded_units)}, categories:categories.rows,
     recent:recent.rows, repeatIssues, compliance, trend:trend.rows.map(row=>({...row,score:row.expected?Math.round(row.submitted/row.expected*1000)/10:null})) };
 }

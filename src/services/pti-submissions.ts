@@ -2,7 +2,8 @@ import type { PoolClient } from 'pg';
 import { db } from '@/lib/database';
 import { formatPtiReference } from '@/lib/pti-reference';
 import { logAudit } from '@/services/audit';
-import { startOfMondayWeek } from '@/lib/date-ranges';
+import { ptiCycleStart, todayInTimeZone } from '@/lib/date-ranges';
+import { getReminderSettings } from '@/services/reminder-settings';
 
 export type CreatePtiSubmissionInput = {
   unitId: string; registrationId: string; sourceChatId: string; sourceChatTitle: string;
@@ -16,6 +17,8 @@ export async function findExistingSubmission(sourceChatId: string, sourceMessage
 }
 
 export async function createProcessingSubmission(input: CreatePtiSubmissionInput) {
+  const cycleSettings = await getReminderSettings();
+  const cycleStart = ptiCycleStart(todayInTimeZone(), cycleSettings.pti_cycle_days, String(cycleSettings.pti_cycle_anchor_date).slice(0, 10));
   const client = await db.connect();
   try {
     await client.query('begin');
@@ -34,7 +37,7 @@ export async function createProcessingSubmission(input: CreatePtiSubmissionInput
         resubmission_for_id=excluded.resubmission_for_id, compliance_week_start=excluded.compliance_week_start, updated_at=now()
       where pti_submissions.status='failed'
       returning id, pti_number`,
-      [input.unitId,input.registrationId,input.sourceChatId,input.sourceChatTitle,input.sourceMessageId,input.submittedByUserId??null,input.submittedByUsername??null,input.mediaType,input.fileId,input.archiveChatId,previous?.id??null,startOfMondayWeek()]);
+      [input.unitId,input.registrationId,input.sourceChatId,input.sourceChatTitle,input.sourceMessageId,input.submittedByUserId??null,input.submittedByUsername??null,input.mediaType,input.fileId,input.archiveChatId,previous?.id??null,cycleStart]);
     if (!rows[0]) throw new Error('This photo or video has already been submitted for PTI review.');
     if (previous) await client.query("update pti_submissions set status='resubmitted' where id=$1", [previous.id]);
     await client.query('commit');

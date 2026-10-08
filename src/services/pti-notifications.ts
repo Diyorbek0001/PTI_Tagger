@@ -4,7 +4,7 @@ import { groupNeedsReassignment } from '@/lib/unit-status';
 import { renderReminderTemplate, escapeHtml } from '@/lib/reminder-template';
 import { getReminderSettings, type ReminderSettings } from '@/services/reminder-settings';
 import { logAudit } from '@/services/audit';
-import { startOfMondayWeek } from '@/lib/date-ranges';
+import { getCurrentPtiCycle } from '@/services/reminder-settings';
 
 type NotificationType = 'manual' | 'automatic';
 
@@ -71,12 +71,13 @@ export async function notifyUnit(unitId: string, type: NotificationType, sentBy:
 }
 
 export async function notifyAllMissing(sentBy: string, api = new Api(requiredToken())) {
+  const cycle = await getCurrentPtiCycle();
   const { rows } = await db.query(`${targetQuery}
     where not exists (
       select 1 from pti_submissions s where s.unit_id=u.id
       and s.compliance_week_start = $1::date
       and s.status not in ('processing','failed')
-    ) order by u.unit_number`,[startOfMondayWeek()]);
+    ) order by u.unit_number`,[cycle.start]);
   let notified = 0;
   const settings = await getReminderSettings();
   const failed: Array<{ unit: string; reason: string }> = [];
@@ -94,6 +95,7 @@ export async function notifyAllMissing(sentBy: string, api = new Api(requiredTok
 
 export async function runAutomaticPtiReminders(api: Api) {
   const settings = await getReminderSettings();
+  const cycle = await getCurrentPtiCycle();
   const { rows } = await db.query(`${targetQuery}
     where not exists (
       select 1 from pti_submissions s where s.unit_id=u.id
@@ -104,7 +106,7 @@ export async function runAutomaticPtiReminders(api: Api) {
     and not exists (
       select 1 from pti_notifications n where n.registration_id=r.id
       and n.sent_at > now() - ($2::integer * interval '1 day')
-    ) order by u.unit_number`,[startOfMondayWeek(),settings.auto_reminder_interval_days]);
+    ) order by u.unit_number`,[cycle.start,settings.auto_reminder_interval_days]);
   for (const target of rows as ReminderTarget[]) {
     if (groupNeedsReassignment(target.telegram_chat_title)) continue;
     try {

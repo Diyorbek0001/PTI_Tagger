@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/database';
 import { z } from 'zod';
 import { logAudit, requestIp, webActor } from '@/services/audit';
-import { startOfMondayWeek } from '@/lib/date-ranges';
+import { getCurrentPtiCycle } from '@/services/reminder-settings';
 import { requireWebRole } from '@/services/web-users';
 
 const createUnitSchema = z.object({
@@ -12,6 +12,7 @@ const createUnitSchema = z.object({
 
 export async function GET() {
   try {
+    const cycle = await getCurrentPtiCycle();
     const { rows } = await db.query(`select u.*,
       coalesce(registrations.items, '[]'::json) as unit_registrations,
       pti.last_pti_at,
@@ -31,7 +32,7 @@ export async function GET() {
       left join lateral (
         select max(n.sent_at) as last_notified_at from pti_notifications n where n.unit_id=u.id
       ) notifications on true
-      order by u.unit_number`,[startOfMondayWeek()]);
+      order by u.unit_number`,[cycle.start]);
     return NextResponse.json({ units: rows });
   } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : 'Request failed' }, { status: 500 }); }
 }
