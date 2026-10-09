@@ -9,6 +9,21 @@ export function ptiTimeZone() {
 export function isoDate(date: Date) { return date.toISOString().slice(0, 10); }
 export function dateOnly(value: string | Date) { return value instanceof Date ? isoDate(value) : value.slice(0, 10); }
 
+export function dateOnlyInTimeZone(value: string | Date, timeZone = ptiTimeZone()) {
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const date = value instanceof Date ? value : new Date(value);
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' })
+    .formatToParts(date).reduce<Record<string, string>>((all, item) => ({ ...all, [item.type]: item.value }), {});
+  return `${parts.year}-${parts.month}-${parts.day}`;
+}
+
+export function submissionCycleExpired(latestSubmission: string | Date | null, cycleDays: number, today: string, anchorDate: string) {
+  const lastSubmissionDay = latestSubmission ? dateOnlyInTimeZone(latestSubmission) : anchorDate;
+  const lastCoveredDay = new Date(`${lastSubmissionDay}T12:00:00Z`);
+  lastCoveredDay.setUTCDate(lastCoveredDay.getUTCDate() + cycleDays);
+  return today > isoDate(lastCoveredDay);
+}
+
 export function todayInTimeZone(now = new Date(), timeZone = ptiTimeZone()) {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' })
     .formatToParts(now).reduce<Record<string, string>>((all, item) => ({ ...all, [item.type]: item.value }), {});

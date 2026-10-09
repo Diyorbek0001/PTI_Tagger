@@ -13,9 +13,9 @@ export type ReminderSettings = {
   pti_cycle_anchor_date: string | Date;
 };
 
-export const defaultReminderTemplate = `🔔 Weekly PTI reminder
+export const defaultReminderTemplate = `🔔 PTI cycle reminder
 
-@driver — Unit @unit still needs a PTI for this week.
+@driver — Unit @unit still needs a PTI for the current cycle.
 
 Last PTI: @lastPTI
 Last notified: @lastNotified

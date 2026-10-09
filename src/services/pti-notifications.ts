@@ -5,6 +5,7 @@ import { renderReminderTemplate, escapeHtml } from '@/lib/reminder-template';
 import { getReminderSettings, type ReminderSettings } from '@/services/reminder-settings';
 import { logAudit } from '@/services/audit';
 import { getCurrentPtiCycle } from '@/services/reminder-settings';
+import { dateOnly, submissionCycleExpired, todayInTimeZone } from '@/lib/date-ranges';
 
 type NotificationType = 'manual' | 'automatic';
 
@@ -95,19 +96,16 @@ export async function notifyAllMissing(sentBy: string, api = new Api(requiredTok
 
 export async function runAutomaticPtiReminders(api: Api) {
   const settings = await getReminderSettings();
-  const cycle = await getCurrentPtiCycle();
+  const today = todayInTimeZone();
   const { rows } = await db.query(`${targetQuery}
-    where not exists (
-      select 1 from pti_submissions s where s.unit_id=u.id
-      and s.compliance_week_start = $1::date
-      and s.status not in ('processing','failed')
-    )
-    and u.auto_reminders_enabled=true
+    where u.auto_reminders_enabled=true
     and not exists (
       select 1 from pti_notifications n where n.registration_id=r.id
-      and n.sent_at > now() - ($2::integer * interval '1 day')
-    ) order by u.unit_number`,[cycle.start,settings.auto_reminder_interval_days]);
+      and n.sent_at > now() - ($1::integer * interval '1 day')
+    ) order by u.unit_number`,[settings.auto_reminder_interval_days]);
+  const anchorDate = dateOnly(settings.pti_cycle_anchor_date);
   for (const target of rows as ReminderTarget[]) {
+    if (!submissionCycleExpired(target.last_pti_at, settings.pti_cycle_days, today, anchorDate)) continue;
     if (groupNeedsReassignment(target.telegram_chat_title)) continue;
     try {
       await notifyTarget(api, target, 'automatic', 'scheduler', settings);
