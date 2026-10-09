@@ -17,7 +17,7 @@ export function calculateCompliance(input: Omit<ComplianceSummary, 'score'|'subm
   };
 }
 
-export type ComplianceScope = { unitId?: string; driverId?: string; company?: string };
+export type ComplianceScope = { unitId?: string; driverId?: string; company?: string; allowedCompanies?: string[] };
 
 export async function getCompliance(weeks = 4, scope: ComplianceScope = {}) {
   const settings = await getReminderSettings();
@@ -44,6 +44,7 @@ export async function getComplianceRange(start: string, end: string, scope: Comp
         and (a.ended_at is null or a.ended_at >= (w.week_start::timestamp at time zone $3))
       where ($4::uuid is null or a.unit_id=$4)
         and ($6::text is null or u.company=$6)
+        and ($8::text[] is null or u.company=any($8))
         and lower(coalesce(a.telegram_group_title,'')) !~ '(inactive|hometime|terminated)'
       order by a.unit_id,w.week_start,a.started_at desc nulls last,a.created_at desc
     ), expected as (
@@ -65,17 +66,17 @@ export async function getComplianceRange(start: string, end: string, scope: Comp
       (select count(*)::int from pti_submissions s join units u on u.id=s.unit_id
         where s.compliance_week_start between $1 and $2 and s.status in ('resend_requested','resubmitted')
         and ($4::uuid is null or s.unit_id=$4) and ($5::uuid is null or s.driver_id=$5)
-        and ($6::text is null or u.company=$6)) as resends,
+        and ($6::text is null or u.company=$6) and ($8::text[] is null or u.company=any($8))) as resends,
       (select count(*)::int from pti_submissions s join units u on u.id=s.unit_id
         where s.compliance_week_start between $1 and $2 and s.status='approved'
         and ($4::uuid is null or s.unit_id=$4) and ($5::uuid is null or s.driver_id=$5)
-        and ($6::text is null or u.company=$6)) as approved
-    from classified`, [start, end, timezone, scope.unitId ?? null, scope.driverId ?? null, scope.company ?? null, cycleDays]);
+        and ($6::text is null or u.company=$6) and ($8::text[] is null or u.company=any($8))) as approved
+    from classified`, [start, end, timezone, scope.unitId ?? null, scope.driverId ?? null, scope.company ?? null, cycleDays,scope.allowedCompanies??null]);
   const row = rows[0];
   return calculateCompliance({ expected: row.expected, onTime: row.on_time, late: row.late, missing: row.missing, excused: row.excused, resends: row.resends, approved: row.approved, availableWeeks: row.available_weeks });
 }
 
-export async function getDriverComplianceRows(weeks:number, company?:string) {
+export async function getDriverComplianceRows(weeks:number, company?:string, allowedCompanies?:string[]) {
   const settings=await getReminderSettings(),cycleDays=settings.pti_cycle_days,anchor=dateOnly(settings.pti_cycle_anchor_date),timezone=ptiTimeZone();
   const current=ptiCycleStart(todayInTimeZone(),cycleDays,anchor),endDate=new Date(`${current}T12:00:00Z`);endDate.setUTCDate(endDate.getUTCDate()-1);
   const end=endDate.toISOString().slice(0,10),start=cycleAgoStart(weeks,cycleDays,anchor);
@@ -86,7 +87,7 @@ export async function getDriverComplianceRows(weeks:number, company?:string) {
       on (a.started_at is null or a.started_at < ((w.week_start+$4::int)::timestamp at time zone $3))
       and (a.ended_at is null or a.ended_at >= (w.week_start::timestamp at time zone $3))
       join units u on u.id=a.unit_id
-      where a.driver_id is not null and lower(coalesce(a.telegram_group_title,'')) !~ '(inactive|hometime|terminated)' and ($5::text is null or u.company=$5)
+      where a.driver_id is not null and lower(coalesce(a.telegram_group_title,'')) !~ '(inactive|hometime|terminated)' and ($5::text is null or u.company=$5) and ($6::text[] is null or u.company=any($6))
       order by a.unit_id,w.week_start,a.started_at desc nulls last,a.created_at desc),
     scored as (select e.*,exists(select 1 from pti_submissions s where s.unit_id=e.unit_id and s.driver_id=e.driver_id
       and s.compliance_week_start=e.week_start and s.status not in ('processing','failed')) submitted,
@@ -95,9 +96,9 @@ export async function getDriverComplianceRows(weeks:number, company?:string) {
       count(s.*) filter(where not s.excused)::int expected,count(s.*) filter(where s.submitted and not s.excused)::int on_time,
       count(s.*) filter(where not s.submitted and not s.excused)::int missing,count(s.*) filter(where s.excused)::int excused,
       case when count(s.*) filter(where not s.excused)>0 then round(100.0*count(s.*) filter(where s.submitted and not s.excused)/count(s.*) filter(where not s.excused),1) end score,
-      (select count(*)::int from pti_submissions p where p.driver_id=d.id and p.compliance_week_start between $1 and $2 and p.status in ('resend_requested','resubmitted')) resends,
-      (select count(*)::int from defects f where f.driver_id=d.id and f.status not in ('RESOLVED','CANCELLED')) open_defects,
-      (select count(*)::int from defects f where f.driver_id=d.id and f.severity='CRITICAL' and f.status not in ('RESOLVED','CANCELLED')) critical_defects
-    from drivers d left join scored s on s.driver_id=d.id group by d.id order by score asc nulls last,d.last_name,d.first_name`,[start,end,timezone,cycleDays,company||null]);
+      (select count(*)::int from pti_submissions p join units pu on pu.id=p.unit_id where p.driver_id=d.id and p.compliance_week_start between $1 and $2 and p.status in ('resend_requested','resubmitted') and ($6::text[] is null or pu.company=any($6))) resends,
+      (select count(*)::int from defects f join units fu on fu.id=f.unit_id where f.driver_id=d.id and f.status not in ('RESOLVED','CANCELLED') and ($6::text[] is null or fu.company=any($6))) open_defects,
+      (select count(*)::int from defects f join units fu on fu.id=f.unit_id where f.driver_id=d.id and f.severity='CRITICAL' and f.status not in ('RESOLVED','CANCELLED') and ($6::text[] is null or fu.company=any($6))) critical_defects
+    from drivers d left join scored s on s.driver_id=d.id where ($6::text[] is null or exists(select 1 from driver_unit_assignments ax join units ux on ux.id=ax.unit_id where ax.driver_id=d.id and ux.company=any($6))) group by d.id order by score asc nulls last,d.last_name,d.first_name`,[start,end,timezone,cycleDays,company||null,allowedCompanies??null]);
   return rows;
 }

@@ -70,14 +70,14 @@ export async function notifyUnit(unitId: string, type: NotificationType, sentBy:
   await notifyTarget(api, target, type, sentBy);
 }
 
-export async function notifyAllMissing(sentBy: string, api = new Api(requiredToken())) {
+export async function notifyAllMissing(sentBy: string, api = new Api(requiredToken()), allowedCompanies?:string[]) {
   const cycle = await getCurrentPtiCycle();
   const { rows } = await db.query(`${targetQuery}
-    where not exists (
+    where ($2::text[] is null or u.company=any($2)) and not exists (
       select 1 from pti_submissions s where s.unit_id=u.id
       and s.compliance_week_start = $1::date
       and s.status not in ('processing','failed')
-    ) order by u.unit_number`,[cycle.start]);
+    ) order by u.unit_number`,[cycle.start,allowedCompanies??null]);
   let notified = 0;
   const settings = await getReminderSettings();
   const failed: Array<{ unit: string; reason: string }> = [];

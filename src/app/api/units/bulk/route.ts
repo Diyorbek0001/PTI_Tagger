@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { db } from '@/lib/database';
 import { logAudit,requestIp,webActor } from '@/services/audit';
 import { requireWebRole } from '@/services/web-users';
+import { companyNamesForUser } from '@/services/company-access';
 
 const bulkUnitsSchema = z.object({
   units: z.array(z.object({
@@ -16,6 +17,11 @@ export async function POST(request: Request) {
     const auth=await requireWebRole(request,['ADMIN','SUPERADMIN']);if('response'in auth)return auth.response;
     const input = bulkUnitsSchema.parse(await request.json());
     const unique = [...new Map(input.units.map(unit => [unit.unitNumber, unit])).values()];
+    const editable=await companyNamesForUser(auth.user.id,auth.user.role,'edit');
+    const requestedCompanies=[...new Set(unique.map(unit=>unit.company))];
+    if(requestedCompanies.some(company=>!editable.includes(company)))return NextResponse.json({error:'Choose only companies you have edit access to.'},{status:403});
+    const active=await db.query('select name from companies where is_active and name=any($1::text[])',[requestedCompanies]);
+    if(active.rows.length!==requestedCompanies.length)return NextResponse.json({error:'Choose active companies from Settings.'},{status:400});
     const client=await db.connect();let rows:Array<{id:string;unit_number:string;company:string}>=[];
     try{await client.query('begin');const inserted=await client.query<{id:string;unit_number:string;company:string}>(`insert into units (unit_number, company)
       select * from unnest($1::text[], $2::text[])

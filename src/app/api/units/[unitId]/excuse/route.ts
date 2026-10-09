@@ -4,6 +4,7 @@ import { db } from '@/lib/database';
 import { logAudit, requestIp, webActor } from '@/services/audit';
 import { getCurrentPtiCycle } from '@/services/reminder-settings';
 import { requireWebRole } from '@/services/web-users';
+import { canAccessUnit } from '@/services/company-access';
 
 const schema = z.object({ weekStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), reason: z.string().trim().min(1).max(500) });
 
@@ -11,6 +12,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ uni
   try {
     const auth = await requireWebRole(request, ['ADMIN', 'SUPERADMIN']); if ('response' in auth) return auth.response;
     const actor = webActor(auth.user), { unitId } = await params, input = schema.parse(await request.json());
+    if(!await canAccessUnit(auth.user.id,auth.user.role,unitId,'edit'))return NextResponse.json({error:'You do not have edit access to this company.'},{status:403});
     const cycleStart = input.weekStart ?? (await getCurrentPtiCycle()).start;
     const client = await db.connect();
     try {

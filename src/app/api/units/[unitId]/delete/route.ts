@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { db } from '@/lib/database';
 import { logAudit, requestIp, webActor } from '@/services/audit';
 import { requireWebRole } from '@/services/web-users';
+import { canAccessUnit } from '@/services/company-access';
 
 const historyTables = [
   ['unit_registrations', 'unit_id'],
@@ -17,6 +18,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ u
   if ('response' in auth) return auth.response;
 
   const { unitId } = await params;
+  if(!await canAccessUnit(auth.user.id,auth.user.role,unitId,'edit'))return NextResponse.json({error:'You do not have edit access to this company.'},{status:403});
   const input = await request.json().catch(() => ({})) as { cascade?: unknown };
   const cascade = input.cascade === true;
   const client = await db.connect();

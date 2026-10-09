@@ -12,7 +12,7 @@ export function DefectDetail({ id }: { id: string }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const user = useCurrentUser();
-  const mayManage = canManage(user);
+  const mayManage = canManage(user)&&Boolean(data&&(user?.role==='SUPERADMIN'||user?.companyAccess?.some(access=>access.company_name===data.defect.company&&access.can_edit)));
   const load = () => void fetch(`/api/defects/${id}`).then(async response => {
     const body = await response.json();
     response.ok ? setData(body) : setError(body.error);

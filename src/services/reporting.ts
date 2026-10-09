@@ -10,36 +10,36 @@ export async function getWeeklyReport(startDate?: string) {
   return getRangeReport(start, startDate ? ptiCycleEnd(startDate, cycle.pti_cycle_days) : cycle.end);
 }
 
-export async function getRangeReport(startDate: string, endDate: string, company?: string) {
+export async function getRangeReport(startDate: string, endDate: string, company?: string, allowedCompanies?: string[]) {
   const [counts, missing, defectBreakdown, critical, reassignments, reviews,repeatIssues,driverCompliance,companies] = await Promise.all([
     db.query(`select
-      (select count(*)::int from units where registration_status='registered' and ($3::text is null or company=$3)) active_units,
-      (select count(*)::int from pti_submissions s join units u on u.id=s.unit_id where s.created_at >= $1::date and s.created_at < ($2::date + 1) and s.status not in ('processing','failed') and ($3::text is null or u.company=$3)) submissions,
-      (select count(*)::int from defects d join units u on u.id=d.unit_id where d.created_at >= $1::date and d.created_at < ($2::date + 1) and ($3::text is null or u.company=$3)) defects_opened,
-      (select count(*)::int from defects d join units u on u.id=d.unit_id where d.resolved_at >= $1::date and d.resolved_at < ($2::date + 1) and ($3::text is null or u.company=$3)) defects_resolved,
-      (select count(*)::int from defects d join units u on u.id=d.unit_id where d.severity='CRITICAL' and d.created_at >= $1::date and d.created_at < ($2::date + 1) and ($3::text is null or u.company=$3)) critical_defects`,[startDate,endDate,company||null]),
+      (select count(*)::int from units where registration_status='registered' and ($3::text is null or company=$3) and ($4::text[] is null or company=any($4))) active_units,
+      (select count(*)::int from pti_submissions s join units u on u.id=s.unit_id where s.created_at >= $1::date and s.created_at < ($2::date + 1) and s.status not in ('processing','failed') and ($3::text is null or u.company=$3) and ($4::text[] is null or u.company=any($4))) submissions,
+      (select count(*)::int from defects d join units u on u.id=d.unit_id where d.created_at >= $1::date and d.created_at < ($2::date + 1) and ($3::text is null or u.company=$3) and ($4::text[] is null or u.company=any($4))) defects_opened,
+      (select count(*)::int from defects d join units u on u.id=d.unit_id where d.resolved_at >= $1::date and d.resolved_at < ($2::date + 1) and ($3::text is null or u.company=$3) and ($4::text[] is null or u.company=any($4))) defects_resolved,
+      (select count(*)::int from defects d join units u on u.id=d.unit_id where d.severity='CRITICAL' and d.created_at >= $1::date and d.created_at < ($2::date + 1) and ($3::text is null or u.company=$3) and ($4::text[] is null or u.company=any($4))) critical_defects`,[startDate,endDate,company||null,allowedCompanies??null]),
     db.query(`select u.id,u.unit_number,u.company,r.driver_id,r.driver_username,r.driver_first_name,r.driver_last_name,r.telegram_chat_title,
       (select max(created_at) from pti_submissions where unit_id=u.id and status not in ('processing','failed')) last_pti,
       (select max(sent_at) from pti_notifications where unit_id=u.id) last_notified
       from units u join unit_registrations r on r.unit_id=u.id and r.is_active
-      where lower(r.telegram_chat_title) !~ '(inactive|hometime|terminated)' and ($3::text is null or u.company=$3)
+      where lower(r.telegram_chat_title) !~ '(inactive|hometime|terminated)' and ($3::text is null or u.company=$3) and ($4::text[] is null or u.company=any($4))
       and not exists(select 1 from pti_submissions s where s.unit_id=u.id and s.created_at >= $1::date and s.created_at < ($2::date + 1) and s.status not in ('processing','failed'))
-      order by u.unit_number`,[startDate,endDate,company||null]),
-    db.query(`select d.status,d.severity,d.category,count(*)::int count from defects d join units u on u.id=d.unit_id where d.created_at >= $1::date and d.created_at < ($2::date + 1) and ($3::text is null or u.company=$3) group by d.status,d.severity,d.category`,[startDate,endDate,company||null]),
+      order by u.unit_number`,[startDate,endDate,company||null,allowedCompanies??null]),
+    db.query(`select d.status,d.severity,d.category,count(*)::int count from defects d join units u on u.id=d.unit_id where d.created_at >= $1::date and d.created_at < ($2::date + 1) and ($3::text is null or u.company=$3) and ($4::text[] is null or u.company=any($4)) group by d.status,d.severity,d.category`,[startDate,endDate,company||null,allowedCompanies??null]),
     db.query(`select d.*,u.unit_number,s.pti_number from defects d join units u on u.id=d.unit_id join pti_submissions s on s.id=d.pti_submission_id
-      where d.severity='CRITICAL' and d.created_at >= $1::date and d.created_at < ($2::date + 1) and d.status not in ('RESOLVED','CANCELLED') and ($3::text is null or u.company=$3) order by d.created_at desc`,[startDate,endDate,company||null]),
+      where d.severity='CRITICAL' and d.created_at >= $1::date and d.created_at < ($2::date + 1) and d.status not in ('RESOLVED','CANCELLED') and ($3::text is null or u.company=$3) and ($4::text[] is null or u.company=any($4)) order by d.created_at desc`,[startDate,endDate,company||null,allowedCompanies??null]),
     db.query(`select a.*,u.unit_number,u.company from driver_unit_assignments a join units u on u.id=a.unit_id
-      where a.source='MANUAL_REASSIGNMENT' and a.created_at >= $1::date and a.created_at < ($2::date + 1) and ($3::text is null or u.company=$3) order by a.created_at desc`,[startDate,endDate,company||null]),
+      where a.source='MANUAL_REASSIGNMENT' and a.created_at >= $1::date and a.created_at < ($2::date + 1) and ($3::text is null or u.company=$3) and ($4::text[] is null or u.company=any($4)) order by a.created_at desc`,[startDate,endDate,company||null,allowedCompanies??null]),
     db.query(`select count(*) filter(where status='approved')::int approved,count(*) filter(where status='resend_requested')::int resend_requested,
-      count(*) filter(where s.status='pending_review')::int pending from pti_submissions s join units u on u.id=s.unit_id where s.created_at >= $1::date and s.created_at < ($2::date + 1) and ($3::text is null or u.company=$3)`,[startDate,endDate,company||null]),
-    getRepeatIssues(undefined,8,company),getDriverComplianceRows(8,company),
-    db.query('select distinct company from units where nullif(trim(company),\'\') is not null order by company'),
+      count(*) filter(where s.status='pending_review')::int pending from pti_submissions s join units u on u.id=s.unit_id where s.created_at >= $1::date and s.created_at < ($2::date + 1) and ($3::text is null or u.company=$3) and ($4::text[] is null or u.company=any($4))`,[startDate,endDate,company||null,allowedCompanies??null]),
+    getRepeatIssues(undefined,8,company,allowedCompanies),getDriverComplianceRows(8,company,allowedCompanies),
+    db.query('select distinct company from units where nullif(trim(company),\'\') is not null and ($1::text[] is null or company=any($1)) order by company',[allowedCompanies??null]),
   ]);
   const summary = counts.rows[0];
   const expected = Number(summary.active_units);
   const submittedUnits = new Set<string>();
   const submissions = await db.query(`select distinct s.unit_id from pti_submissions s join units u on u.id=s.unit_id
-    where s.created_at >= $1::date and s.created_at < ($2::date + 1) and s.status not in ('processing','failed') and ($3::text is null or u.company=$3)`,[startDate,endDate,company||null]);
+    where s.created_at >= $1::date and s.created_at < ($2::date + 1) and s.status not in ('processing','failed') and ($3::text is null or u.company=$3) and ($4::text[] is null or u.company=any($4))`,[startDate,endDate,company||null,allowedCompanies??null]);
   for (const row of submissions.rows) submittedUnits.add(row.unit_id);
   const compliance = { expected, submitted: submittedUnits.size, missing: Math.max(0,expected-submittedUnits.size), score: expected ? Math.round(submittedUnits.size/expected*1000)/10 : null };
   return {startDate,endDate,selectedCompany:company||'',companies:companies.rows.map(row=>row.company),compliance,summary,missing:missing.rows,defectBreakdown:defectBreakdown.rows,

@@ -4,15 +4,19 @@ import { z } from 'zod';
 import { logAudit, requestIp, webActor } from '@/services/audit';
 import { getCurrentPtiCycle } from '@/services/reminder-settings';
 import { requireWebRole } from '@/services/web-users';
+import { canAccessCompany, companyNamesForUser } from '@/services/company-access';
+import { currentWebUser } from '@/services/web-users';
 
 const createUnitSchema = z.object({
   unitNumber: z.string().trim().min(1).max(40).regex(/^[A-Za-z0-9-]+$/, 'Use letters, numbers, or hyphens only'),
   company: z.string().trim().min(1).max(120),
 });
 
-export async function GET() {
+export async function GET(request:Request) {
   try {
+    const auth=await currentWebUser(request);if(!auth)return NextResponse.json({error:'Authentication required.'},{status:401});
     const cycle = await getCurrentPtiCycle();
+    const companies=await companyNamesForUser(auth.user.id,auth.user.role);
     const { rows } = await db.query(`select u.*,
       coalesce(registrations.items, '[]'::json) as unit_registrations,
       pti.last_pti_at,
@@ -32,7 +36,8 @@ export async function GET() {
       left join lateral (
         select max(n.sent_at) as last_notified_at from pti_notifications n where n.unit_id=u.id
       ) notifications on true
-      order by u.unit_number`,[cycle.start]);
+      where $2::boolean or u.company=any($3::text[])
+      order by u.unit_number`,[cycle.start,auth.user.role==='SUPERADMIN',companies]);
     return NextResponse.json({ units: rows });
   } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : 'Request failed' }, { status: 500 }); }
 }
@@ -41,6 +46,9 @@ export async function POST(request: Request) {
   try {
     const auth=await requireWebRole(request,['ADMIN','SUPERADMIN']);if('response'in auth)return auth.response;
     const input = createUnitSchema.parse(await request.json());
+    const {rows:companyRows}=await db.query('select 1 from companies where name=$1 and is_active',[input.company]);
+    if(!companyRows.length)return NextResponse.json({error:'Choose an active company from Settings.'},{status:400});
+    if(!await canAccessCompany(auth.user.id,auth.user.role,input.company,'edit'))return NextResponse.json({error:'You do not have edit access to that company.'},{status:403});
     const client=await db.connect(); let rows;
     try {await client.query('begin'); const result=await client.query('insert into units (unit_number, company) values ($1, $2) returning *',[input.unitNumber,input.company]);rows=result.rows;
       await logAudit({actor:webActor(auth.user),action:'UNIT_CREATED',entityType:'UNIT',entityId:rows[0].id,unitId:rows[0].id,description:`Unit ${rows[0].unit_number} created`,metadata:{company:rows[0].company},ipAddress:requestIp(request)},client);await client.query('commit');

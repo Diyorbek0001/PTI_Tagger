@@ -2,11 +2,13 @@ import { NextResponse } from 'next/server';
 import { notifyAllMissing } from '@/services/pti-notifications';
 import { logAudit,requestIp,webActor } from '@/services/audit';
 import { requireWebRole } from '@/services/web-users';
+import { companyNamesForUser } from '@/services/company-access';
 
 export async function POST(request:Request) {
   try {
     const auth=await requireWebRole(request,['ADMIN','SUPERADMIN']);if('response'in auth)return auth.response;
-    const result = await notifyAllMissing(auth.user.display_name);
+    const companies=auth.user.role==='SUPERADMIN'?undefined:await companyNamesForUser(auth.user.id,auth.user.role,'edit');
+    const result = await notifyAllMissing(auth.user.display_name,undefined,companies);
     await logAudit({actor:webActor(auth.user),action:'BULK_REMINDER_SENT',entityType:'REMINDER',description:`Bulk PTI reminder completed: ${result.notified} sent`,metadata:{notified:result.notified,failed:result.failed.length},ipAddress:requestIp(request)});
     return NextResponse.json(result);
   } catch (error) {
