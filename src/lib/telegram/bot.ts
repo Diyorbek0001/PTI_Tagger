@@ -11,9 +11,88 @@ import { logAudit } from '@/services/audit';
 import { ptiTimeZone } from '@/lib/date-ranges';
 export function createBot(token: string) {
   const bot = new Bot(token);
+  const pendingAnnouncements = new Map<string, number>();
+  bot.use(async (ctx, next) => {
+    const chat = ctx.chat;
+    const sender = ctx.from;
+    const message = ctx.message;
+    if (!chat || chat.type !== 'private' || !sender || !message) return next();
+    const pendingKey = `${chat.id}:${sender.id}`;
+    const startedAt = pendingAnnouncements.get(pendingKey);
+    if (startedAt === undefined) return next();
+    if (Date.now() - startedAt > 10 * 60 * 1000) {
+      pendingAnnouncements.delete(pendingKey);
+      await ctx.reply('That announcement prompt expired. Send /announce to start again.');
+      return;
+    }
+    const text = 'text' in message ? message.text : undefined;
+    if (text && /^\/announce(?:@[A-Za-z0-9_]+)?(?:\s|$)/i.test(text)) {
+      await ctx.reply('You already have an announcement prompt open. Send its content or use /cancelannounce.');
+      return;
+    }
+    if (text && /^\/cancelannounce(?:@[A-Za-z0-9_]+)?(?:\s|$)/i.test(text)) {
+      pendingAnnouncements.delete(pendingKey);
+      await ctx.reply('Announcement cancelled.');
+      return;
+    }
+    if (!isConfiguredTelegramAdmin(sender)) {
+      pendingAnnouncements.delete(pendingKey);
+      await ctx.reply('❌ You are not authorized to send fleet announcements.');
+      return;
+    }
+    pendingAnnouncements.delete(pendingKey);
+    let rows: Array<{chat_id:string}>;
+    try {
+      const result = await db.query(`select distinct r.telegram_chat_id::text as chat_id
+        from unit_registrations r join units u on u.id=r.unit_id
+        where r.is_active=true and u.registration_status='registered'
+          and lower(r.telegram_chat_title) !~ '(inactive|hometime|terminated)'
+        order by chat_id`);
+      rows = result.rows as Array<{chat_id:string}>;
+    } catch (error) {
+      console.error('Could not load active driver groups for fleet announcement:', error instanceof Error ? error.message : 'Database query failed');
+      await ctx.reply('❌ I could not load the active driver groups, so the announcement was not sent. Please try again.');
+      return;
+    }
+    const targets = rows;
+    if (!targets.length) {
+      await ctx.reply('There are no active registered driver groups to announce to.');
+      return;
+    }
+    await ctx.reply(`Sending your announcement to ${targets.length} active driver groups…`);
+    let sent = 0;
+    let failed = 0;
+    for (const target of targets) {
+      try {
+        await ctx.api.copyMessage(target.chat_id, chat.id, message.message_id);
+        sent += 1;
+      } catch (error) {
+        failed += 1;
+        console.warn('Fleet announcement delivery failed:', { chatId: target.chat_id, error: error instanceof Error ? error.message : 'Telegram delivery failed' });
+      }
+      await new Promise(resolve => setTimeout(resolve, 45));
+    }
+    await logAudit({
+      actor:{type:'TELEGRAM_USER',id:String(sender.id),displayName:sender.username ? `@${sender.username}` : sender.first_name},
+      action:'FLEET_ANNOUNCEMENT_SENT',entityType:'ANNOUNCEMENT',description:`Fleet announcement sent to ${sent} of ${targets.length} active driver groups`,
+      metadata:{targetCount:targets.length,sentCount:sent,failedCount:failed},
+    }).catch(error => console.error('Could not audit fleet announcement:', error instanceof Error ? error.message : 'Audit write failed'));
+    await ctx.reply(`✅ Announcement delivered to ${sent} of ${targets.length} active driver groups.${failed ? ` ${failed} group${failed===1?'':'s'} could not be reached.` : ''}`);
+  });
+  bot.command('announce', async ctx => {
+    if (!await requireReminderAdmin(ctx)) return;
+    if (!ctx.chat || !ctx.from) return;
+    pendingAnnouncements.set(`${ctx.chat.id}:${ctx.from.id}`, Date.now());
+    await ctx.reply('Forward or send the announcement you want delivered to all active driver groups. Use /cancelannounce to cancel.');
+  });
   bot.command('adminhelp', async ctx => {
     if (!await requireReminderAdmin(ctx)) return;
-    await ctx.reply(`Reminder configuration commands
+    await ctx.reply(`Admin commands
+
+/announce — send a custom announcement to all active registered driver groups.
+Use /cancelannounce to cancel after the bot prompts you.
+
+Reminder configuration commands
 
 /setreminder MESSAGE — update the reminder text and keep the current attachment.
 
@@ -166,16 +245,20 @@ async function requireReminderAdmin(ctx: Context) {
     await ctx.reply('Reminder settings can only be changed in a private chat with the bot.');
     return false;
   }
-  const configured = process.env.TELEGRAM_ADMIN_USERNAME?.trim().replace(/^@/, '').toLowerCase();
-  if (!configured) {
+  if (!process.env.TELEGRAM_ADMIN_USERNAME?.trim()) {
     await ctx.reply('TELEGRAM_ADMIN_USERNAME is not configured for this bot.');
     return false;
   }
-  if (ctx.from?.username?.toLowerCase() !== configured) {
-    await ctx.reply('❌ You are not authorized to change reminder settings.');
+  if (!isConfiguredTelegramAdmin(ctx.from)) {
+    await ctx.reply('❌ You are not authorized to use this admin command.');
     return false;
   }
   return true;
+}
+
+function isConfiguredTelegramAdmin(user: User | undefined) {
+  const configured = process.env.TELEGRAM_ADMIN_USERNAME?.trim().replace(/^@/, '').toLowerCase();
+  return Boolean(configured && user?.username?.toLowerCase() === configured);
 }
 
 function messageContent(message: { text?: string; caption?: string } | undefined) {

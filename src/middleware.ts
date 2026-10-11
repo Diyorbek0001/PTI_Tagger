@@ -10,6 +10,8 @@ export async function middleware(request:NextRequest){
   const superadminOnly=(pathname==='/admin'||pathname.startsWith('/admin/')||pathname.startsWith('/api/admin/'))&&!userManagementPath;
   if(superadminOnly&&session.role!=='SUPERADMIN'){if(pathname.startsWith('/api/'))return NextResponse.json({error:'Superadmin access is required.'},{status:403});return NextResponse.redirect(new URL('/',request.url))}
   if(userManagementPath&&!['SUPERADMIN','USERADMIN'].includes(session.role)){if(pathname.startsWith('/api/'))return NextResponse.json({error:'UserAdmin or Superadmin access is required.'},{status:403});return NextResponse.redirect(new URL('/',request.url))}
+  const viewerRestricted=pathname==='/pti'||pathname.startsWith('/pti/')||pathname==='/audit'||pathname.startsWith('/audit/')||pathname==='/settings'||pathname.startsWith('/settings/')||pathname==='/api/pti-submissions'||pathname.startsWith('/api/pti-submissions/')||pathname==='/api/audit'||pathname==='/api/reminder-settings';
+  if(viewerRestricted&&session.role==='VIEWER'){if(pathname.startsWith('/api/'))return NextResponse.json({error:'Viewer accounts cannot access this section.'},{status:403});return NextResponse.redirect(new URL('/',request.url))}
   const mutation=!['GET','HEAD','OPTIONS'].includes(request.method)&&pathname.startsWith('/api/')&&pathname!=='/api/auth/logout';
   if(mutation&&session.role==='VIEWER')return NextResponse.json({error:'Viewer accounts are read-only.'},{status:403});
   return NextResponse.next();
