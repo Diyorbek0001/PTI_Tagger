@@ -18,7 +18,8 @@ export async function findExistingSubmission(sourceChatId: string, sourceMessage
 }
 
 export async function createProcessingSubmission(input: CreatePtiSubmissionInput) {
-  const cycleSettings = await getReminderSettings();
+  const { rows: unitRows } = await db.query<{ company: string }>('select company from units where id=$1', [input.unitId]);
+  const cycleSettings = await getReminderSettings(unitRows[0]?.company);
   const cycleStart = ptiCycleStart(todayInTimeZone(), cycleSettings.pti_cycle_days, dateOnly(cycleSettings.pti_cycle_anchor_date));
   const client = await db.connect();
   try {
