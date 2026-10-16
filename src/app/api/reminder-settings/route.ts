@@ -4,7 +4,7 @@ import { getReminderSettings, setOperationalSettings } from '@/services/reminder
 import { requireWebRole } from '@/services/web-users';
 import { canAccessCompany } from '@/services/company-access';
 
-const schema = z.object({ company: z.string().trim().min(1).max(120), intervalDays: z.number().int().min(1).max(14).optional(), ptiCycleDays: z.number().int().min(1).max(31).optional(), ptiCycleAnchorDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() }).refine(value => value.intervalDays !== undefined || value.ptiCycleDays !== undefined || value.ptiCycleAnchorDate !== undefined);
+const schema = z.object({ company: z.string().trim().min(1).max(120), reminderTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).optional(), ptiCycleDays: z.number().int().min(1).max(31).optional() }).refine(value => value.reminderTime !== undefined || value.ptiCycleDays !== undefined);
 
 export async function GET(request: Request) {
   const auth = await requireWebRole(request, ['ADMIN', 'SUPERADMIN']);
@@ -20,8 +20,8 @@ export async function PATCH(request: Request) {
     if ('response' in auth) return auth.response;
     const input = schema.parse(await request.json());
     if (!await canAccessCompany(auth.user.id, auth.user.role, input.company, 'edit')) return NextResponse.json({ error: 'You do not have edit access to that company.' }, { status: 403 });
-    await setOperationalSettings({ company: input.company, reminderIntervalDays: input.intervalDays, ptiCycleDays: input.ptiCycleDays, ptiCycleAnchorDate: input.ptiCycleAnchorDate }, auth.user.display_name);
-    return NextResponse.json({ ok: true, ...(input.intervalDays !== undefined && { intervalDays: input.intervalDays }), ...(input.ptiCycleDays !== undefined && { ptiCycleDays: input.ptiCycleDays }), ...(input.ptiCycleAnchorDate !== undefined && { ptiCycleAnchorDate: input.ptiCycleAnchorDate }) });
+    await setOperationalSettings({ company: input.company, reminderTime: input.reminderTime, ptiCycleDays: input.ptiCycleDays }, auth.user.display_name);
+    return NextResponse.json({ ok: true, ...(input.reminderTime !== undefined && { reminderTime: input.reminderTime }), ...(input.ptiCycleDays !== undefined && { ptiCycleDays: input.ptiCycleDays }) });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Unable to update automatic reminder settings.' }, { status: 400 });
   }

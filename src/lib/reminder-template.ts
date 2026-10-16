@@ -2,6 +2,7 @@ export type ReminderTemplateValues = {
   driverMention: string;
   unit: string;
   company: string;
+  cycleDays: number;
   lastNotifiedAt: string | Date | null;
   lastPtiAt: string | Date | null;
 };
@@ -12,7 +13,8 @@ export function renderReminderTemplate(template: string, values: ReminderTemplat
     .replaceAll('@lastNotified', formatDay(values.lastNotifiedAt))
     .replaceAll('@lastPTI', formatDay(values.lastPtiAt))
     .replaceAll('@unit', escapeHtml(values.unit))
-    .replaceAll('@company', escapeHtml(values.company));
+    .replaceAll('@company', escapeHtml(values.company))
+    .replaceAll('@cycledays', String(values.cycleDays));
 }
 
 function formatDay(value: string | Date | null) {

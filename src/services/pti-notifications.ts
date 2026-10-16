@@ -4,7 +4,7 @@ import { groupNeedsReassignment } from '@/lib/unit-status';
 import { renderReminderTemplate, escapeHtml } from '@/lib/reminder-template';
 import { getReminderSettings, type ReminderSettings } from '@/services/reminder-settings';
 import { logAudit } from '@/services/audit';
-import { getCurrentPtiCycle } from '@/services/reminder-settings';
+import { dateOnlyInTimeZone, timeInTimeZone, todayInTimeZone } from '@/lib/date-ranges';
 
 type NotificationType = 'manual' | 'automatic';
 
@@ -31,7 +31,7 @@ const targetQuery = `select u.id as unit_id, u.unit_number, u.company, r.id as r
   (select max(n.sent_at) from pti_notifications n where n.registration_id=r.id) as last_notified_at
   from units u join unit_registrations r on r.unit_id=u.id and r.is_active=true`;
 
-function reminderText(target: ReminderTarget, template: string) {
+function reminderText(target: ReminderTarget, template: string, cycleDays: number) {
   const name = [target.driver_first_name, target.driver_last_name].filter(Boolean).join(' ') || 'Driver';
   const mention = target.driver_username
     ? `@${target.driver_username.replace(/^@/, '')}`
@@ -42,6 +42,7 @@ function reminderText(target: ReminderTarget, template: string) {
     driverMention: mention,
     unit: target.unit_number,
     company: target.company,
+    cycleDays,
     lastNotifiedAt: target.last_notified_at,
     lastPtiAt: target.last_pti_at,
   });
@@ -50,7 +51,7 @@ function reminderText(target: ReminderTarget, template: string) {
 export async function notifyTarget(api: Api, target: ReminderTarget, type: NotificationType, sentBy: string, configured?: ReminderSettings) {
   if (groupNeedsReassignment(target.telegram_chat_title)) throw new Error('This group is marked for reassignment and was not notified.');
   const settings = configured ?? await getReminderSettings();
-  const text = reminderText(target, settings.message_template);
+  const text = reminderText(target, settings.message_template, settings.pti_cycle_days);
   const message = settings.media_type === 'photo' && settings.telegram_file_id
     ? await api.sendPhoto(target.telegram_chat_id, settings.telegram_file_id, { caption: text, parse_mode: 'HTML' })
     : settings.media_type === 'video' && settings.telegram_file_id
@@ -67,49 +68,27 @@ export async function notifyUnit(unitId: string, type: NotificationType, sentBy:
   const { rows } = await db.query(`${targetQuery} where u.id=$1`, [unitId]);
   const target = rows[0] as ReminderTarget | undefined;
   if (!target) throw new Error('This unit does not have an active Telegram registration.');
-  await notifyTarget(api, target, type, sentBy);
-}
-
-export async function notifyAllMissing(sentBy: string, api = new Api(requiredToken()), allowedCompanies?:string[]) {
-  const cycle = await getCurrentPtiCycle();
-  const { rows } = await db.query(`${targetQuery}
-    where ($2::text[] is null or u.company=any($2)) and not exists (
-      select 1 from pti_submissions s where s.unit_id=u.id
-      and s.compliance_week_start = $1::date
-      and s.status not in ('processing','failed')
-    ) order by u.unit_number`,[cycle.start,allowedCompanies??null]);
-  let notified = 0;
-  const settings = await getReminderSettings();
-  const failed: Array<{ unit: string; reason: string }> = [];
-  for (const target of rows as ReminderTarget[]) {
-    if (groupNeedsReassignment(target.telegram_chat_title)) continue;
-    try {
-      await notifyTarget(api, target, 'manual', sentBy, settings);
-      notified += 1;
-    } catch (error) {
-      failed.push({ unit: target.unit_number, reason: error instanceof Error ? error.message : 'Telegram delivery failed' });
-    }
-  }
-  return { notified, failed };
+  await notifyTarget(api, target, type, sentBy, await getReminderSettings(target.company));
 }
 
 export async function runAutomaticPtiReminders(api: Api) {
   const { rows: companies } = await db.query<{ company: string }>('select distinct company from units where company is not null and btrim(company) <> \'\' order by company');
   for (const { company } of companies) {
     const settings = await getReminderSettings(company);
-    const cycle = await getCurrentPtiCycle(company);
+    if (timeInTimeZone().slice(0, 5) !== settings.auto_reminder_time.slice(0, 5)) continue;
     const { rows } = await db.query(`${targetQuery}
       where u.company=$1 and u.auto_reminders_enabled=true
       and not exists (
-        select 1 from pti_submissions s where s.unit_id=u.id
-        and s.compliance_week_start=$2::date
-        and s.status not in ('processing','failed')
-      )
-      and not exists (
         select 1 from pti_notifications n where n.registration_id=r.id
-        and n.sent_at > now() - ($3::integer * interval '1 day')
-      ) order by u.unit_number`,[company,cycle.start,settings.auto_reminder_interval_days]);
+        and n.sent_at > now() - interval '20 hours'
+      ) order by u.unit_number`,[company]);
     for (const target of rows as ReminderTarget[]) {
+    const today = todayInTimeZone();
+    if (target.last_pti_at) {
+      const dueDate = new Date(`${dateOnlyInTimeZone(target.last_pti_at)}T12:00:00Z`);
+      dueDate.setUTCDate(dueDate.getUTCDate() + settings.pti_cycle_days);
+      if (today < dueDate.toISOString().slice(0, 10)) continue;
+    }
     if (groupNeedsReassignment(target.telegram_chat_title)) continue;
     try {
       await notifyTarget(api, target, 'automatic', 'scheduler', settings);

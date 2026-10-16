@@ -30,6 +30,10 @@ export function todayInTimeZone(now = new Date(), timeZone = ptiTimeZone()) {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
+export function timeInTimeZone(now = new Date(), timeZone = ptiTimeZone()) {
+  return new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', minute: '2-digit', hour12: false }).format(now);
+}
+
 export function ptiCycleStart(date: string, cycleDays: number, anchorDate = '1970-01-05') {
   const day = (value: string) => Math.floor(Date.parse(`${value}T00:00:00Z`) / 86_400_000);
   const anchor = day(anchorDate), current = day(date);
