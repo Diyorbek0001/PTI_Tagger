@@ -12,6 +12,9 @@ bot.api.getMe().then(me => {
     console.error('Automatic PTI reminder check failed:', error instanceof Error ? error.message : error);
   });
   setTimeout(checkReminders, 15_000);
-  setInterval(checkReminders, 60 * 60 * 1000);
+  // Check frequently enough to catch the configured minute regardless of
+  // when the process started. The database query in runAutomaticPtiReminders
+  // prevents duplicate sends within the same reminder window.
+  setInterval(checkReminders, 15 * 1000);
   return bot.start();
 });
