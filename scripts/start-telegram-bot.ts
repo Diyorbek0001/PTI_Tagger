@@ -8,9 +8,18 @@ if (!token) throw new Error('TELEGRAM_BOT_TOKEN is required');
 const bot = createBot(token);
 bot.api.getMe().then(me => {
   console.info(`Telegram bot connected successfully. Bot: @${me.username}. Environment: ${process.env.NODE_ENV ?? 'development'}`);
-  const checkReminders = () => void runAutomaticPtiReminders(bot.api).catch(error => {
-    console.error('Automatic PTI reminder check failed:', error instanceof Error ? error.message : error);
-  });
+  let reminderCheckInProgress = false;
+  const checkReminders = () => {
+    if (reminderCheckInProgress) return;
+    reminderCheckInProgress = true;
+    void runAutomaticPtiReminders(bot.api)
+      .catch(error => {
+        console.error('Automatic PTI reminder check failed:', error instanceof Error ? error.message : error);
+      })
+      .finally(() => {
+        reminderCheckInProgress = false;
+      });
+  };
   setTimeout(checkReminders, 15_000);
   // Check frequently enough to catch the configured minute regardless of
   // when the process started. The database query in runAutomaticPtiReminders
