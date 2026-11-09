@@ -25,7 +25,7 @@ The repository is configured to run the website, Telegram bot, reminder schedule
 2. Add a Railway PostgreSQL service to the same project. In the application service's Variables tab, add `DATABASE_URL=${{Postgres.DATABASE_URL}}` (replace `Postgres` if you gave the database service another name).
 3. Add these application-service variables:
    - `TELEGRAM_BOT_TOKEN` — token from BotFather.
-   - `TELEGRAM_ADMIN_USERNAME` — the only Telegram username allowed to configure reminders in the bot's private chat; enter it without `@`.
+   - `TELEGRAM_ADMIN_USERNAME` — the Telegram username(s) allowed (comma-separated for several, `@` optional) to configure reminders in the bot's private chat.
    - `WEB_ADMIN_USERNAME` — username for the website login page.
    - `WEB_ADMIN_PASSWORD` — a long, unique password for the website login page.
    - `PTI_ARCHIVE_CHAT_ID` — archive supergroup ID beginning with `-100`.

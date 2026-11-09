@@ -257,8 +257,13 @@ async function requireReminderAdmin(ctx: Context) {
 }
 
 function isConfiguredTelegramAdmin(user: User | undefined) {
-  const configured = process.env.TELEGRAM_ADMIN_USERNAME?.trim().replace(/^@/, '').toLowerCase();
-  return Boolean(configured && user?.username?.toLowerCase() === configured);
+  // Accepts one username or a comma/space-separated list, e.g. "@alice, @bob".
+  const configured = (process.env.TELEGRAM_ADMIN_USERNAME ?? '')
+    .split(/[\s,]+/)
+    .map((name) => name.trim().replace(/^@/, '').toLowerCase())
+    .filter(Boolean);
+  const username = user?.username?.toLowerCase();
+  return Boolean(username && configured.includes(username));
 }
 
 function messageContent(message: { text?: string; caption?: string } | undefined) {
